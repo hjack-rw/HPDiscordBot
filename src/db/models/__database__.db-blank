@@ -1,0 +1,54 @@
+BEGIN TRANSACTION;
+CREATE TABLE "experience" (
+	"user_id"	INTEGER NOT NULL UNIQUE,
+	"xp"	INTEGER NOT NULL,
+	"level"	INTEGER NOT NULL,
+	"progress"	REAL NOT NULL,
+	"archived"	INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY("user_id")
+);
+CREATE TABLE "experience_info" (
+	"user_id"	INTEGER NOT NULL UNIQUE,
+	"username"	TEXT DEFAULT NULL,
+	"offset"	INTEGER NOT NULL DEFAULT 0,
+	"pet_from_sea"	INTEGER NOT NULL DEFAULT 0,
+	"pet_dog"	INTEGER NOT NULL DEFAULT 0,
+	"pet_ashwinder"	INTEGER NOT NULL,
+	"pet_thestral"	INTEGER NOT NULL DEFAULT 0,
+	"favourite_color"	INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY("user_id"),
+	CONSTRAINT "user_id" FOREIGN KEY("user_id") REFERENCES "experience"
+);
+CREATE TABLE "extra_variables" (
+	"name"	TEXT NOT NULL UNIQUE,
+	"type_value"	TEXT NOT NULL,
+	"value"	INTEGER,
+	PRIMARY KEY("name","type_value")
+);
+CREATE TABLE "images" (
+	"filename"	TEXT NOT NULL UNIQUE,
+	"message_id"	INTEGER DEFAULT NULL,
+	"data"	BLOB,
+	PRIMARY KEY("filename")
+);
+CREATE TABLE "portkeys" (
+	"id"	INTEGER NOT NULL UNIQUE,
+	"message_id"	INTEGER DEFAULT NULL,
+	"user_id"	INTEGER NOT NULL UNIQUE,
+	"game_id"	INTEGER NOT NULL,
+	"from_wb"	INTEGER NOT NULL,
+	"old_username"	TEXT,
+	"multiple_choice"	INTEGER NOT NULL,
+	"additional_info"	TEXT,
+	"birthday"	INTEGER,
+	"year"	INTEGER,
+	"extra"	TEXT,
+	PRIMARY KEY("id" AUTOINCREMENT)
+);
+CREATE TABLE "welcome_messages" (
+	"user_id"	INTEGER NOT NULL UNIQUE,
+	"message_id"	INTEGER NOT NULL UNIQUE,
+	"date"	INTEGER NOT NULL,
+	PRIMARY KEY("user_id")
+);
+COMMIT;

@@ -1,39 +1,39 @@
 import src.variables as vars
 
-from datetime import datetime, timedelta
-from functools import reduce
-from PIL import Image, ImageFont, ImageDraw, ImageFilter
-from types import SimpleNamespace
-
-import copy
-import csv
-import functools
-import io
-import json
-import re
-import time
+from copy      import deepcopy
+from csv       import DictReader
+from datetime  import datetime, timedelta
+from functools import reduce, wraps
+from io        import BytesIO, StringIO
+from os        import getcwd, path
+from PIL       import Image, ImageDraw, ImageFilter, ImageFont, UnidentifiedImageError
+from re        import search, sub
+from time      import mktime, sleep
+from types     import SimpleNamespace
 
 import requests
 session = requests.Session()
 
+from discord.app_commands        import Group
 from discord.app_commands.errors import CommandInvokeError
-from discord.errors import NotFound
-from discord.embeds import Embed
-from discord.enums import EntityType, PrivacyLevel
-from discord.file import File
-from discord.interactions import Interaction
-from discord.utils import MISSING
+from discord.errors              import DiscordServerError, NotFound
+from discord.embeds              import Embed
+from discord.enums               import EntityType, PrivacyLevel
+from discord.file                import File
+from discord.interactions        import Interaction, InteractionResponded
+from discord.message             import Message
+from discord.utils               import MISSING
 
-from typing import Callable, Awaitable, TypeVar, ParamSpec
+from typing import Awaitable, Callable, ParamSpec, TypeVar
 P = ParamSpec("P") # parameters
-R = TypeVar("R")   # returns
+R =   TypeVar("R") # returns
 
 
 # SETTINGS
 # for testing
 # vars.test_bot["test_command"] = True # overwrite if needed
-# vars.test_bot["test_events"] = True # overwrite if needed
-# vars.test_bot["test_tasks"] = True # overwrite if needed
+# vars.test_bot["test_events"]  = True # overwrite if needed
+# vars.test_bot["test_tasks"]   = True # overwrite if needed
 
 
 delete_after = {"hours":0, "minutes":0, "seconds":0}
@@ -47,8 +47,8 @@ else:
     channel_ids = vars.channel_ids
 
 headers = {"authorization": f"Bot {vars.bot_token}",
-           "content-type": "application/json",
-           "user-agent": "BOT (http://discord.com, v1.0)",}
+           "content-type":   "application/json",
+           "user-agent":     "BOT (http://discord.com, v1.0)",}
 
 class CustomHousecup:
     def __init__(self, house:str, all_members_count:int):
@@ -69,32 +69,63 @@ class CustomHousecup:
 
 def standard_response(silent: bool=False):
     def run(func: Callable[P, Awaitable[R]]):
-        @functools.wraps(func)
+        @wraps(func)
         async def response(*args: P.args, **kwargs: P.kwargs) -> R:
-            interaction: Interaction = kwargs.get("interaction") or args[0]
+            interaction = kwargs.get("interaction", None)
+            message     = kwargs.get("message", None)
+            
+            if interaction is None and message is None:
+                output = {Group: None, Interaction: None, Message: None}
+
+                for arg in args:
+                    for expected_type in output:
+                        if isinstance(arg, expected_type) and output[expected_type] is None:
+                            output[expected_type] = arg
+                            break  # stop checking once matched
+
+                _, interaction, message  = output[Group], output[Interaction], output[Message]
             
             if not silent:
-                await interaction.response.send_message("A wizard must show patience... please, wait for the command to finish!", ephemeral=True)
+                wait_text = "A wizard must show patience... please, wait for the command to finish!"
+
+                if interaction:
+                    await safe_handle_response(interaction, message=wait_text)
+                elif message:
+                    await message.channel.send(wait_text, delete_after=10)
 
             try:
                 return await func(*args, **kwargs)
             except Exception as error:
-                text = f"Something went very wrong here... {error}!"
+                error_text = f"Something went very wrong here... {error}!"
                 
-                if not silent:
-                    try:
-                        await interaction.followup.send(text, ephemeral=True)
-                    except Exception as followup_error:
-                        print(f"Failed to send error follow-up: {followup_error}")
-                else:
-                    await interaction.response.send_message(text, ephemeral=True)
+                try:
+                    if interaction:
+                        return await safe_handle_response(interaction, message=error_text)
+                    elif message:
+                        return await message.channel.send(error_text, delete_after=10)
+                except Exception as followup_error:
+                    print(f"Failed to send error follow-up: {followup_error}")
+                
+                print(error_text)
         
         return response
     return run
 
 
+async def safe_handle_response(interaction, message):
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    
+    # if already responded/deferred
+    except InteractionResponded:
+        await interaction.followup.send(message, ephemeral=True)
+
+
 def disable_after(func):
-    @functools.wraps(func)
+    @wraps(func)
     async def decorator(self, interaction:Interaction, *args, **kwargs):
         await func(self, interaction, *args, **kwargs)
         
@@ -121,22 +152,22 @@ async def wait_till_posted(channel, idx):
 
 
 async def send_command(target_channel_id, app_id, version, id, command, options=[]):
-    payload = {"type":2,
+    payload = {"type":           2,
                "application_id":str(app_id),
-               "guild_id":str(vars.server_id),
-               "channel_id":str(target_channel_id),
-               "session_id":"3794653e1bf277766e6356b596fd495d",
+               "guild_id":      str(vars.server_id),
+               "channel_id":    str(target_channel_id),
+               "session_id":    "3794653e1bf277766e6356b596fd495d",
                "data":{"version":str(version), "id":str(id), "name":command, "type":1, "options": options}}
     
     # overwrite headers
     headers = {"authorization": str(vars.discord_token),
-               "content-type": "application/json",}
+               "content-type":  "application/json",}
 
     response = session.post(url="https://discord.com/api/v9/interactions", json=payload, headers=headers,)
     #print(response)
 
     if response.status_code < 300:
-        time.sleep(vars.wait_for)
+        sleep(vars.wait_for)
     else:
         raise Exception("failed to send command!")
 
@@ -168,6 +199,25 @@ async def send_webhook(target_channel, user_name, user_avatar_url=None, content=
     else:
         raise Exception("failed to create webhook")
 
+
+async def edit_webhook(target_channel, message_id, embed=None, file=None):
+    
+    response = change_webhook_channel(target_channel)
+    #print(response)
+
+    webhook = [webhook for webhook in await target_channel.webhooks() if webhook.id == vars.webhook_id][0]
+
+    embeds, attachments = [], []
+    
+    if embed:
+        embeds = [embed]
+
+    if file:
+        attachments = [file]
+    
+    await webhook.edit_message(message_id=message_id, embeds=embeds, attachments=attachments)
+
+
 ############################################################################################################
 
 def replace_multiple(string:str, replace_list:list, self_idx=True):
@@ -184,7 +234,7 @@ def convert_to_unix_time(date:datetime, mode:str):
     date_tuple = (date.year, date.month, date.day, date.hour, date.minute, date.second)
 
     # convert to unix time
-    return f'<t:{int(time.mktime(datetime(*date_tuple).timetuple()))}:{mode}>'
+    return f'<t:{int(mktime(datetime(*date_tuple).timetuple()))}:{mode}>'
 
 
 # "flip through" a list
@@ -204,7 +254,7 @@ def catch_error(dict:dict, keys:list):
 
 def remove_extra_characters(string:str, is_id:bool=False):
     if is_id:
-        return re.sub(r'''\D''', "", string)
+        return sub(r'''\D''', "", string)
     else:
         return replace_multiple(string.lstrip(" ").rstrip(" "), [("\r", ""), ("\n", "")], self_idx=False)
 
@@ -218,7 +268,7 @@ def parse_multiple_possibilities(value:str):
 
 def get_today():
     def run(func):
-        @functools.wraps(func)
+        @wraps(func)
         async def insert_today(*args, **kwargs):
             func_name = func.__name__
             if not func_name.endswith("_reminder"):
@@ -236,32 +286,72 @@ def get_today():
 
 
 def get_json(url):
-    
-    # create HTTP response object 
-    response = requests.get(url)
-
     try:
-        return json.loads(response.content)
-    except:
+        # create HTTP response object 
+        response = requests.get(url, timeout=10)
+        response.raise_for_status() # raise an exception for HTTP errors
+
+        return response.json()
+    except (requests.RequestException, ValueError):
         raise Exception("no JSON file found")
 
 
 def get_csv(url):
-    
-    # create HTTP response object 
-    response = requests.get(url)
-    content  = response.content.decode('utf-8').replace("\ufeff", "").splitlines()
-
     try:
-        return [{key:int(value) for key,value in row.items() if key != "_"} for row in csv.DictReader(f=content[1:], fieldnames=["_", "_", "user_id", "xp", "_", "_", "_", "_"])]
-    except:
+        # create HTTP response object 
+        response = requests.get(url)
+        response.raise_for_status() # raise an exception for HTTP errors
+
+        # decode the csv format
+        decoded = response.content.decode("utf-8-sig")
+        content = DictReader(StringIO(decoded))
+
+        # skip empty rows
+        data = []
+        for row in content:
+            if not any(row.values()):
+                continue
+            data.append(row)
+        
+        if not data:
+            raise Exception("CSV is empty or has invalid format")
+        
+        return data
+    except requests.RequestException:
         raise Exception("no CSV file found")
 
 
-def get_image(url):
-    response = session.get(url,)
-    return response.content
+def get_file(url, filename, directory=None):
+    try:
+        # mimic a browser request
+        response = requests.get(url, headers={"user-agent": "Mozilla/5.0"}, stream=True)
+        response.raise_for_status() # raise an exception for HTTP errors
 
+        with open(path.join(directory or vars.absolute_path, filename), 'wb') as file:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    file.write(chunk)
+
+    except requests.exceptions.RequestException as e:
+        raise Exception("no file found")
+
+
+def get_image(url, delay=2, max_retries=10):
+    while True:
+        try:
+            response = session.get(url, timeout=10)
+            response.raise_for_status()
+            return response.content
+        except requests.exceptions.RequestException as error:
+            attempts += 1
+            print(f"Error: failed to download image from {url}: {error}")
+
+            if attempts < max_retries:
+                print(f"Retrying in {delay} seconds...")
+                sleep(delay)
+            else:
+                print(f"Failed to download image after {max_retries} attempts.")
+                return None
 
 async def get_image_from_channel(channel, message_id):
     message = await channel.fetch_message(message_id)
@@ -407,7 +497,7 @@ def draw_infocard(new_user, all_members_count):
     url = get_avatar(user=new_user)
 
     # download avatar
-    avatar = Image.open(io.BytesIO(get_image(url=url)))
+    avatar = Image.open(BytesIO(get_image(url=url)))
     
     # scaling
     avatar = scale_image(base_width=220, image=avatar)
@@ -443,7 +533,7 @@ def draw_infocard(new_user, all_members_count):
 
     
     ## save and return file ##
-    bytes = io.BytesIO()
+    bytes = BytesIO()
     background.save(bytes, format="PNG")
     bytes.seek(0)
     
@@ -452,23 +542,31 @@ def draw_infocard(new_user, all_members_count):
 
 def draw_leaderboard(user, rank, house, static, is_bytes=False):
     background, profile_border, full_bar, bar_mask, marker, fonts = static
-    background = copy.deepcopy(background)
+    background = deepcopy(background)
 
 
     ## profile picture ##
     xy = (150, 150)
 
-    if user["avatar"] is None:
-        # black avatar if missing
-        avatar = Image.new(mode="L", size=xy, color=0)
-    else:
-        # download avatar
-        avatar = Image.open(io.BytesIO(get_image(url=user["avatar"])))
-        
-        # scaling
-        avatar = scale_image(base_width=xy[0], image=avatar)
-    
+    avatar = None
     avatar_center = (177, 156)
+   
+    if url := user["avatar"]:
+        try:
+            # download avatar
+            image_data = get_image(url)
+
+            image = Image.open(BytesIO(image_data))
+            image.load()  # force-load the image
+
+            # scaling
+            avatar = scale_image(base_width=xy[0], image=image)
+        except (OSError, UnidentifiedImageError, TypeError) as error:
+            print(f"PIL error: failed to load image for {user.get('username')}:\n{error}")
+
+    # black avatar if missing
+    if avatar is None:
+        avatar = Image.new(mode="L", size=xy, color=0)
 
     # add avatar mask
     avatar_mask = Image.new(mode="L", size=avatar.size, color=0)
@@ -545,7 +643,7 @@ def draw_leaderboard(user, rank, house, static, is_bytes=False):
     
     
     ## save and return file ##
-    bytes = io.BytesIO()
+    bytes = BytesIO()
     background.save(bytes, format="PNG")
     bytes.seek(0)
     
@@ -556,12 +654,12 @@ def draw_leaderboard(user, rank, house, static, is_bytes=False):
 ############################################################################################################
 
 def parse_xp_amount(func):
-    @functools.wraps(func)
+    @wraps(func)
     async def parse(self, *args, **kwargs):
-        server = kwargs.pop("server")
-        member = kwargs.pop("member", SimpleNamespace(id=None))
-        amount = kwargs.pop("amount")
-        after_action= kwargs.pop("after_action", "add")
+        server       = kwargs.pop("server")
+        member       = kwargs.pop("member", SimpleNamespace(id=None))
+        amount       = kwargs.pop("amount")
+        after_action = kwargs.pop("after_action", "add")
 
         if amount <= 0:
             raise Exception("parse error: 'amount' cannot be zero or negative")
@@ -570,15 +668,9 @@ def parse_xp_amount(func):
         record  = self.get_from_dict(user_id=user_id)
         is_new  = not bool(record)
 
-        # modify existing record
-        if record:
-            previous_xp    = record["xp"]
-            previous_level = record["level"]
-            
-        # create a new record
-        else:
-            previous_xp    = 0
-            previous_level = 0
+        # modify existing record or create a new record
+        previous_xp    = record["xp"]    if record else 0
+        previous_level = record["level"] if record else 0
             
         # compute new xp based on the action
         if after_action == "add":
@@ -590,25 +682,26 @@ def parse_xp_amount(func):
         else:  # action == "set"
             current_xp = amount
         
-        kwargs["is_new"]  = is_new
-        kwargs["user_id"] = user_id
-
         current_level, progress = get_level_and_progress(current_xp)
-        kwargs["experience"] = {"xp": current_xp, "level": current_level, "progress": progress}
+
+        # prepare new_kwargs dict for func
+        new_kwargs = deepcopy(kwargs)
+        new_kwargs.update({"is_new":  is_new,
+                           "user_id": user_id,
+                           "experience": {"xp": current_xp, "level": current_level, "progress": progress, **({} if is_new else {"archived": False}),}})
 
         # check roles to assign Sphinx or Ashwinder pet accordingly
         if is_new:
-            kwargs["pet_ashwinder"] = not bool({role.name for role in getattr(member, "roles", [])} & {"gop", "guest"})
-        else:
-            kwargs["experience"]["archived"] = False
+            new_kwargs["pet_ashwinder"] = not bool({role.name for role in getattr(member, "roles", [])} & {vars.club_name_short, "guest"})
 
-        current_xp = func(self, *args, **kwargs)
+        # call the original function
+        current_xp = await func(self, *args, **new_kwargs)
 
         # when on server send a level up message
         if server:
             level_ups = get_level_change(previous_level, current_level)
             if level_ups:
-                user_data = self.get_joined_table(user_id=member.id)
+                user_data = await self.get_joined_table(user_id=member.id)
                 await print_notification(server, event_name="Level Up", variables=[member, user_data, level_ups], is_task=False)
 
         return current_xp
@@ -648,7 +741,7 @@ def create_leaderboard(server, data, custom_housecup):
 
         # get the special role color
         try:
-            if member.roles[-1].name in {"captain", "moderator", "co-captain", "captain (cross guild)", "co-captain (cross guild)"}:
+            if member.roles[-1].name in {"captain", "moderator", "co-captain",}:
                 color = member.roles[-1].color.value
             else:
                 color = 5198940
@@ -656,7 +749,7 @@ def create_leaderboard(server, data, custom_housecup):
             color = vars.system_embed_color
 
         if (username := user.pop("username", None)) is None:
-            user["username"] = (member.nick or member.global_name).replace(" ", "\n ")
+            user["username"] = (member.display_name).replace(" ", "\n ")
         else:
             user["username"] = username
         
@@ -670,8 +763,8 @@ def create_leaderboard(server, data, custom_housecup):
 ############################################################################################################
 
 def parse_portkey_data(func):  
-    @functools.wraps(func)
-    def parse(self, *args, **kwargs):
+    @wraps(func)
+    async def parse(self, *args, **kwargs):
         server  = kwargs.pop("server")
         message = kwargs.pop("message")
         user_id = kwargs.pop("user_id", None)
@@ -708,13 +801,15 @@ def parse_portkey_data(func):
                     multiple_choice = parse_multiple_possibilities(field.value)
                     additional_info = multiple_choice.pop(-1)
                     
-                    form_answers = vars.form_answers
+                    form_answers     = vars.form_answers
+                    form_answers_set = set(form_answers)
 
-                    if additional_info in form_answers:
+                    if additional_info in form_answers_set:
                         multiple_choice.append(additional_info)
                         additional_info = None
 
-                    multiple_choice = "".join("1" if answer in multiple_choice else "0" for answer in reversed(form_answers))
+                    selected_answers = set(multiple_choice)
+                    multiple_choice  = "".join("1" if answer in selected_answers else "0" for answer in reversed(form_answers))
                 
                 case "6":
                     birth_parts = field.value.split(".")
@@ -729,9 +824,12 @@ def parse_portkey_data(func):
                 case "7":
                     extra = field.value if (field.value != "-") else None       
         
-        kwargs["portkey"] = (user_id, game_id, from_wb, old_username, multiple_choice, additional_info, birthday, birth_year, extra)
+        # prepare new_kwargs dict for func
+        new_kwargs = deepcopy(kwargs)
+        new_kwargs["portkey"] = (user_id, game_id, from_wb, old_username, multiple_choice, additional_info, birthday, birth_year, extra)
         
-        return func(self, *args, **kwargs)
+        # call the original function
+        return await func(self, *args, **new_kwargs)
     return parse
 
 
@@ -739,7 +837,7 @@ def print_portkey(member, portkey):
     try:
         roles = {role.name for role in getattr(member, "roles", [])}
 
-        if member.roles[-1].name in {"captain", "moderator", "co-captain", "captain (cross guild)", "co-captain (cross guild)"}:
+        if member.roles[-1].name in {"captain", "moderator", "co-captain",}:
             color = member.roles[-1].color.value
         else:
             color = 5198940
@@ -755,16 +853,16 @@ def print_portkey(member, portkey):
 
     embed = Embed(color=color, description=f"**User:** <@{portkey['user_id']}>")
     
-    line_1 = f"{member.nick or member.global_name} | `#" + f"{portkey['game_id'] if portkey['game_id'] else 0}`".rjust(10, "0") + f" [📋]({doc_url})"
+    line_1 = f"{member.display_name} | `#" + f"{portkey['game_id'] if portkey['game_id'] else 0}`".rjust(10, "0") + f" [📋]({doc_url})"
     embed.add_field(name="1. Hello, I'm... | And my ID is...", value=line_1, inline=True)
 
-    line_2 = vars.houses[[house for house in vars.houses_names_list(is_short=False) if house in roles][0]]["emoji"]
+    line_2 = vars.houses[next((house for house in vars.houses_names_list() if house in roles), "other")]["emoji"]
     embed.add_field(name="2. My house is...", value=line_2, inline=True)
     
     line_3 = (("Yes | " if portkey["from_wb"] else "No, ") + portkey["old_username"]) if portkey["old_username"] else ("Yes" if portkey["from_wb"] else "No")
     embed.add_field(name="3. Am I from the WB server? | My name was...", value=line_3.replace(" | 0", ", "), inline=False)
 
-    line_4 = "• " + "• ".join([form_answers_extended[idx] for idx,choice in enumerate(portkey["multiple_choice"][::-1] + ("1" if portkey["additional_info"] else "0")) if choice == "1"])
+    line_4 = "• " + "• ".join([form_answers_extended[idx].replace(" ", "​ ​ ", 1) for idx,choice in enumerate(portkey["multiple_choice"][::-1] + ("1" if portkey["additional_info"] else "0")) if choice == "1"])
     embed.add_field(name="4. In the game I like doing...", value=line_4, inline=False)
     
     if (not_skip := portkey["birthday"] is not None):
@@ -780,7 +878,7 @@ def print_portkey(member, portkey):
         line_6 = portkey["extra"]
         embed.add_field(name=f"{6 if not_skip else 5}. You may also want to know...", value=line_6, inline=False)
     
-    embed.set_footer(text=f"GOP  •  Portkey #{portkey['id']}")
+    embed.set_footer(text=f"{vars.club_name_short.upper()}  •  Portkey #{portkey['id']}")
 
     return embed
 
@@ -791,7 +889,7 @@ async def print_suitcase(images, info, level):
     
     if info['current_level']:
         pet = get_animal_rank(user=info, level=level)
-        embed.set_footer(text=f"Level: {info['current_level']},​ ​ ​XP: {round(info['xp_for_next_level']*info['progress'])} / {info['xp_for_next_level']}​ ​ ({info['progress']*100}%)")
+        embed.set_footer(text=f"Level: {info['current_level']},​ ​ ​XP: {round(info['xp_for_next_level']*info['progress'])} / {info['xp_for_next_level']}​ ​ ({round(info['progress']*100, 2)}%)")
     else:
         pet = vars.pets.get(list(vars.pets)[level])
         embed.set_footer(text=f"Level: ♾️")
@@ -799,9 +897,9 @@ async def print_suitcase(images, info, level):
     embed.add_field(name="", value=f"*{pet['name']}* (Level {level})")
     embed.set_image(url=pet["url"])
 
-    match = re.search(r'attachment://(.*?)\.png', pet["url"])
+    match = search(r'attachment://(.*?)\.png', pet["url"])
     if match:
-        return embed, images(filename__has="pet", filename__like=match.group(1)).get()
+        return embed, (await images.initialize(filename__has="pet", filename__like=match.group(1))).get()
     else:
         return embed, MISSING
 
@@ -817,16 +915,16 @@ def print_house_members(members, house, group):
         if {house, group} <= {role.name for role in getattr(member, "roles", [])}:
             users.append(member)
 
-    users = sorted(users, key=lambda x: (x.nick or x.global_name))
+    users = sorted(users, key=lambda x: (x.display_name))
     
     for idx, user in enumerate(users):
-        users[idx] = f"{idx+1}. {user.nick or user.global_name} - <@{user.id}>"
+        users[idx] = f"{idx+1}. {user.display_name} - <@{user.id}>"
 
-    return Embed(color=vars.system_embed_color, title=vars.houses[house]["emoji"], description=f"**{group.capitalize() if group != 'gop' else group.upper()}:**\n"+"\n".join(users))
+    return Embed(color=vars.system_embed_color, title=vars.houses[house]["emoji"], description=f"**{group.capitalize() if group != vars.club_name_short else vars.club_name}:**\n"+"\n".join(users))
 
 ############################################################################################################
 
-async def set_event_and_notification(server, event_info, date, event_duration, start_time, only_hour=True, time_delta=0):
+async def set_event_and_notification(server, event_info, date, event_duration, start_time, only_hour=True, time_delta=0, role="@everyone"):
     global delete_after
     
     trigger_day = date
@@ -855,11 +953,11 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
 
     # get alternative title and insert timer
     if not event_info["title"]:
-        event_name = re.search('<(.*)>', event_info["subtitle"]).group(1)
+        event_name = search('<(.*)>', event_info["subtitle"]).group(1)
         event_info["subtitle"] = replace_multiple(event_info["subtitle"], [("<", ""), (">", "")], self_idx=False)
 
     elif ("<" in event_info["title"]) and (">" in event_info["title"]):
-        event_name = re.search('<(.*)>', event_info["subtitle"]).group(1) + f": {re.search('<(.*)>', event_info['title']).group(1)}"
+        event_name = search('<(.*)>', event_info["subtitle"]).group(1) + f": {search('<(.*)>', event_info['title']).group(1)}"
         event_info["title"] = replace_multiple(event_info["title"], [("<", ""), (">", "")], self_idx=False)
         event_info["subtitle"] = replace_multiple(event_info["subtitle"], [("<", ""), (">", "")], self_idx=False)
     else:
@@ -888,10 +986,12 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
                                                 privacy_level=PrivacyLevel.guild_only,
                                                 entity_type=EntityType.external,
                                                 image=get_image(url=await get_image_from_channel(channel, message_id=event_info["image_id"])))
+        except DiscordServerError:
+            print("Could not create event... Discord API error!")
+        except CommandInvokeError:
+            print("Could not create event... Bad timestamp!")
         except ValueError:
             print("Could not create event... Image not found!")
-        except CommandInvokeError:
-            print("Could not create event... Bad time!")
     
     
     # create notification message
@@ -905,7 +1005,7 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
         embed.set_footer(text=event_info["footer"])
 
     channel = server.get_channel(channel_ids["announcements"])
-    message = await send_webhook(target_channel=channel, user_name=event_info["account"], content="Mention: <@&0>", embed=embed)
+    message = await send_webhook(target_channel=channel, user_name=event_info["account"], content=f"Mention: {role}", embed=embed)
 
     if not vars.test_bot["test_tasks"]:
         await message.delete(delay=(delete_after["hours"]*3600)+(delete_after["minutes"]*60)+delete_after["seconds"])
@@ -930,21 +1030,21 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
         channel = server.get_channel(channel_ids["welcome"])
 
         event_info = {"mention":    f"Mention: <@{new_user.id}>",
-                      "title":      f"Welcome, {new_user.name}, to GatesOfPurgatory! <:hugs:1256225688403447888>",
+                      "title":      f"Welcome {new_user.name}, to {vars.club_name}! <:hugs:1256225688403447888>",
                       "description": "Go to <id:guide> and follow the instructions :)",
                       "footer":   f'''"You are a Wizard, {new_user.name}."''',
                       "account":     "Prof. Hagrid",}
         
-        embed = Embed(title=f"Welcome, {new_user.name}, to GatesOfPurgatory! <:hugs:1256225688403447888>",  description="Go to <id:guide> and follow the instructions :)", color=vars.system_embed_color)
+        embed = Embed(title=event_info["title"],  description=event_info["description"], color=vars.system_embed_color)
 
     elif event_name == "Level Up":
         user, user_data, level_ups = variables
 
-        channel = server.get_channel(channel_ids["the-3-broomsticks"])
+        channel = server.get_channel(channel_ids["great-hall"])
 
         event_info = {"mention":    f"Mention: <@{user.id}>",
                       "title":      f"Level {level_ups[-1]}!",
-                      "description":f"**{user.nick or user.global_name}** just caught a **{get_animal_rank(user=user_data, level=level_ups[0])['name']}** <:hugs:1256225688403447888>\n",
+                      "description":f"**{user.display_name}** just caught a **{get_animal_rank(user=user_data, level=level_ups[0])['name']}** <:hugs:1256225688403447888>\n",
                       "extra_fields":[f"Wait! There is more... they also caught a {get_animal_rank(user=user_data, level=level)['name']}\n" for level in level_ups[1:]],
                       "footer":   '''"One can never have enough pets!"''',
                       "account":     "Prof. Dumbledore",}
@@ -956,14 +1056,15 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
             event_info["description"] += ending
 
     elif event_name == "Birthday":
-        birthdays = variables[0]
+        birthday_users = [await server.fetch_member(user_id) for user_id in variables[0]]
+        birthday_user  = birthday_users[0]
         
-        channel = server.get_channel(channel_ids["the-3-broomsticks"])
+        channel = server.get_channel(channel_ids["great-hall"])
 
         event_info = {"mention":       "Mention: @everyone",
                       "subtitle":      "Birthday Announcement!",
-                      "description":  f"**GOP  •  {date.strftime('%d/%m/%Y')}**\nPlease, wish <@{birthdays[0]}> a **Happy Birthday** <:hugs:1256225688403447888> :heart:",
-                      "extra_fields":[f"Wait! There is more...\nPlease, wish <@{birthday}> a **Happy Birthday** as well <:hugs:1256225688403447888> :heart:" for birthday in birthdays[1:]],
+                      "description":  f"**{vars.club_name_short.upper()}  •  {date.strftime('%d/%m/%Y')}**\nPlease, wish **{birthday_user.display_name}** a **Happy Birthday** <:hugs:1256225688403447888> :heart:",
+                      "extra_fields":[f"Wait! There is more...\nPlease, wish **{birthday_user.display_name}** a **Happy Birthday** as well <:hugs:1256225688403447888> :heart:" for birthday_user in birthday_users[1:]],
                       "thumbnail":     "https://i.pinimg.com/564x/d8/48/59/d848592fca62cc100b148b5b77006248.jpg",
                       "footer":     '''"I can see something in the stars...\nToday is a very special day!"''',
                       "account":       "Prof. Trelawney",}
@@ -998,7 +1099,7 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
             event_info["description"] = event_info["description"].replace("/000", "/0")
             event_info["description"] = replace_multiple(event_info["description"], ["Library", "Pixies", "first bookcase row left", "Use Glacius.", "3 copies"])
 
-        return await set_event_and_notification(server, event_info, date, event_duration=(4,0,0), start_time=(17,0,0))
+        return await set_event_and_notification(server, event_info, date, event_duration=(4,0,0), start_time=(17,0,0), role="<@&0>")
 
 
     elif event_name == "Housecup":
@@ -1011,18 +1112,18 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
                       "footer":   '''"Did you put your name for the House Cup yet?!" he asked calmly.''',
                       "account":     "Prof. Dumbledore",}
         
-        return await set_event_and_notification(server, event_info, date, time_delta=(0 if same_day else 1), event_duration=(2,0,0), start_time=(19,0,0), only_hour=False)
+        return await set_event_and_notification(server, event_info, date, time_delta=(0 if same_day else 1), event_duration=(2,0,0), start_time=(19,0,0), only_hour=False, role="@everyone")
 
 
     elif event_name == "Club Events":
         event_info = {"image_id":    "0",
-                      "title":       "GOP Club Events!",
+                      "title":      f"{vars.club_name_short.upper()} Club Events!",
                       "subtitle":   f"Reminder: {vars.weekdays[date.weekday()]}!",
                       "description": "**We start 000!**\nWe will begin with a Quiz, and after roughly 20 min we go over to a Dance!",
                       "footer":   '''"Place your right hand on my waist and...\nOne, two, three... One, two, three..."''',
                       "account":     "Prof. McGonagall",}
         
-        return await set_event_and_notification(server, event_info, date, event_duration=(1,0,0), start_time=(19,30,0))
+        return await set_event_and_notification(server, event_info, date, event_duration=(1,0,0), start_time=(19,30,0), role="<@&0>")
 
 
     elif event_name == "Club Points":

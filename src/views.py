@@ -1,12 +1,12 @@
-from src.db_classes import Images
-from src.functions import disable_after, turn_limit, print_suitcase, print_house_members
-from src.variables import houses_names_list, pets
+from src.db import Images
+from src.functions  import safe_handle_response, disable_after, print_house_members, print_suitcase, turn_limit
+from src.variables  import club_name_short, houses_names_list, pets
 
-from discord.enums import ButtonStyle
-from discord.ext import commands
-from discord.interactions import Interaction
+from discord.enums         import ButtonStyle
+from discord.ext           import commands
+from discord.interactions  import Interaction
 from discord.partial_emoji import PartialEmoji
-from discord.ui import button, Button, View, Select
+from discord.ui            import button, Button, View, Select
 
 from random import choice
 
@@ -26,22 +26,23 @@ class WelcomeView(View):
     async def hello(self, interaction: Interaction, button: Button):
         
         if self.user is None:
-            return await interaction.response.send_message("User not found!", ephemeral=True)
+            return await safe_handle_response(interaction, message="User not found!")
         
-        elif interaction.user.id == self.user.id:
-            return await interaction.response.send_message("You can't do it yourself, let others greet you!", ephemeral=True)
+        if interaction.user.id == self.user.id:
+            return await safe_handle_response(interaction, message="You can't do it yourself, let others greet you!")
 
-        if interaction.user.id not in self.clicked_users:
-            self.clicked_users.append(interaction.user.id)
+        if interaction.user.id in self.clicked_users:
+            return await safe_handle_response(interaction, message="We limited the interactions to one greeting per user!")
 
-            sticker = choice(self.stickers)
+        # mark user as clicked
+        self.clicked_users.append(interaction.user.id)
+        sticker = choice(self.stickers)
 
-            #NOTE if they ever allow webhooks to send stickers
-            await interaction.response.send_message("Your message has been sent!", ephemeral=True)
-            await interaction.message.reply(content=f"<@{interaction.user.id}> says: Welcome <@{self.user.id}>! {sticker.description}", stickers=[sticker])
-
-        else:
-            await interaction.response.send_message("We limited the interactions to one greeting per user!", ephemeral=True)
+        #NOTE if they ever allow webhooks to send stickers
+        await safe_handle_response(interaction, message="Your message has been sent!")
+        
+        # send public reply safely after defer
+        await interaction.message.reply(content=f"<@{interaction.user.id}> says: Welcome <@{self.user.id}>! {sticker.description}", stickers=[sticker])
 
 
 # disciplines in a dropdown select
@@ -179,7 +180,7 @@ class MemberView(View):
         
         self.members = members
         self.houses  = houses_names_list()
-        self.groups  = ["gop", "guest", "cross guild"]
+        self.groups  = [club_name_short, "guest"]#, "cross guild"]
 
         if message is not None:
             self.message = message
@@ -242,17 +243,17 @@ class MemberView(View):
     def turn_right(self, interaction: Interaction, button: Button):
         self.page = turn_limit(turnable=(self.page+1), max=len(self.houses))
     
-    @button(label="GOP",  style=ButtonStyle.red, custom_id="filter")
+    @button(label=club_name_short.upper(),  style=ButtonStyle.red, custom_id="filter")
     @cooldown_interaction
     def switch_filter(self, interaction: Interaction, button: Button):
         self.filter = turn_limit(turnable=(self.filter+1), max=len(self.groups))
 
         if self.filter == 0:
-            self.children[2].label = "GOP"
+            self.children[2].label = club_name_short.upper()
             self.children[2].style = ButtonStyle.red
         elif self.filter == 1:
             self.children[2].label = "Guest"
             self.children[2].style = ButtonStyle.green
-        else:
-            self.children[2].label = "Cross Guild"
-            self.children[2].style = ButtonStyle.blurple
+        #else:
+        #    self.children[2].label = "Cross Guild"
+        #    self.children[2].style = ButtonStyle.blurple

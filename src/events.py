@@ -1,12 +1,14 @@
-from src.body import bot
-from src.db_classes import Portkeys, WelcomeMessages
-from src.functions import draw_infocard, print_notification
-from src.variables import test_bot, channel_sections_ids, channel_ids, channel_ids_test
-from src.views import WelcomeView
+from src.body       import bot
+from src.db import Portkeys, WelcomeMessages
+from src.functions  import draw_infocard, print_notification
+from src.variables  import channel_ids, channel_ids_test, channel_sections_ids, test_bot
+from src.views      import WelcomeView
 
-from asyncio import get_event_loop
+import traceback
+
+from asyncio  import get_event_loop
 from datetime import datetime
-from random import randint
+from random   import randint
 
 # SETTINGS
 # for testing
@@ -31,7 +33,7 @@ async def on_member_join(member):
         message = await print_notification(SERVER, event_name="Welcome", variables=[member, image, view])
 
         if not test_bot["test_events"]:
-            WelcomeMessages().add(user_id=member.id, message_id=message.id, date=datetime.now())
+            await (await WelcomeMessages.initialize()).add(user_id=member.id, message_id=message.id, date=datetime.now())
     
         await MEMBERS_VIEW.update_members(members=SERVER.members)
     
@@ -51,18 +53,21 @@ async def on_member_remove(member):
     if not test_bot["test_events"] and not member.bot:
         
         CHANNEL = SERVER.get_channel(channel_ids["portkey-arrival"])
-        if message_id := Portkeys(user_id=member.id).archive(return_empty=True):
+        if message_id := await (await Portkeys.initialize(user_id=member.id)).archive(return_empty=True):
             
             message = await CHANNEL.fetch_message(message_id)
             await message.delete()
 
         CHANNEL = SERVER.get_channel(channel_ids["welcome"])
-        if message_id := WelcomeMessages().remove(user_id=member.id):
+        if message_id := await (await WelcomeMessages.initialize()).remove(user_id=member.id):
             
             message = await CHANNEL.fetch_message(message_id)
             await message.delete()
         
-        USER_EXPERIENCE.archive(user_id=member.id)
+        try:
+            await USER_EXPERIENCE.archive(user_id=member.id)
+        except Exception:
+            pass
 
 
 # Post on Server
@@ -133,7 +138,7 @@ async def on_reaction_add(reaction, user):
     message = reaction.message
 
     # skip if message channel is not allowed
-    if message.channel.id not in [channel_ids["portraits"], channel_ids["hagrids-hut"], channel_ids["dueling-club"], channel_ids["felix-felicis"], channel_ids["gallery"]]:
+    if message.channel.id not in [channel_ids["portraits"], channel_ids["dueling-club"], channel_ids["gallery"], channel_ids["frog-choir"], channel_ids["hagrids-hut"]]:
         return
 
     # user cooldown    
@@ -152,3 +157,26 @@ async def on_reaction_add(reaction, user):
             await USER_EXPERIENCE.tweak(server=SERVER, member=user, amount=5)
         except Exception as error:
             print(str(error))
+
+
+# Error Handling
+@bot.event
+async def on_error(event_method, *args, **kwargs):
+    caught_error = traceback.format_exc()
+    
+    # ignore common network-related aiohttp errors
+    ignored_errors = ("ClientConnectorDNSError",
+                      "ClientOSError",
+                      "ClientConnectorError",
+                      "TimeoutError",)
+
+    if any(error in caught_error for error in ignored_errors):
+        return
+    
+    print(f"Event {event_method} error:\n{caught_error}")
+
+
+# Disconnect
+@bot.event
+async def on_disconnect():
+    print("Bot disconnected — waiting to reconnect...")

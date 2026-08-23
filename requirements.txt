@@ -1,4 +1,7 @@
+aiosqlite
+cutie
 discord.py
+readchar
 pillow
 pip-system-certs
 python-dotenv

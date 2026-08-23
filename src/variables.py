@@ -1,72 +1,122 @@
+from datetime import datetime, time
+from dotenv   import load_dotenv
+from pathlib  import Path
+from zoneinfo import ZoneInfo
+
+import os
+
+
+path = os.getcwd() + "/src/"
+load_dotenv(dotenv_path=Path(path + "env"))
+
+absolute_path = path
+
+discord_token = os.getenv("DISCORD_TOKEN")
+bot_token     = os.getenv("DISCORD_BOT_TOKEN")
+
 try:
     from pre_init import *
 except ImportError:
     print("failed to import 'test_bot' from pre_init!")
-    test_bot = {"local_deploy": False,
+    test_bot = {"local_deploy": os.getcwd() != "/home/container",
                 "test_body":    False,
                 "test_command": False,
                 "test_events":  False,
                 "test_tasks":   False,}
 
-from datetime import datetime, time
-from dotenv import load_dotenv
-from pathlib import Path
-from zoneinfo import ZoneInfo
+############################################################################################################
 
-import os
+bot_id      = 0
+dev_user_id = 0
+webhook_id  = 0
+server_id   = 0
 
-path = os.getcwd() + "/src/"
-load_dotenv(dotenv_path=Path(path + "env"))
+club_name = "Enemies of the Heir"
+club_name_short = "eoth"
 
-
-absolute_path = path
-server_id  = 0
-bot_id     = 0
-webhook_id = 0
-
-channel_sections_ids = {"general":  0,
+channel_sections_ids = {"archive":  0,
+                        "team":     0,
+                        "club":     0,
+                        "tickets":  0,
+                        "general":  0,
                         "guides":   0,
                         "offtopic": 0,}
 
-channel_ids = {"welcome":           0,
-               "points-log":        0,
-               "assets":            0,
-               "testing":           0,
-               "headmasters":       0,
-               "staffroom":         0,
-               "sorting-hat":       0,
-               "announcements":     0,
-               "portkey-arrival":   0,
-               "leaderboard":       0,
-               "the-3-broomsticks": 0,
-               "portraits":         0,
-               "hagrids-hut":       0,
-               "dueling-club":      0,
-               "felix-felicis":     0,
-               "gallery":           0,}
+channel_ids = {"welcome":                 0,
+               
+               "secret-lab":              0,
+               "assets":                  0,
+               "staffroom":               0,
+               "absence-list":            0,
+               "points-log":              0,
+               "the-sorting-hat":         0,
+               
+               "rules":                   0,
+               "marauders-map":           0,
+               "announcements":           0,
+               "the-daily-prophet":       0,
+               "important-polls":         0,
+               "portkey-arrival":         0,
+               "leaderboard":             0,
 
-channel_ids_test = {"assets": 0,}
-channel_ids_test.update({key:channel_ids["testing"] for key in channel_ids if key not in ["assets",]})
+               "owlery":                  0,
+               "come-and-go":             0,
 
-custom_avatars = {"Prof. Dumbledore": "https://static.wikia.nocookie.net/harrypotter/images/8/82/ProfessorDumbledore.jpg",
-                  "Prof. McGonagall": "https://m.natemat.pl/4cccf528bb2fabc88d662c3ac8a519ef,922,0,0,0.png",
-                  "Prof. Snape":      "https://images.bravo.de/harry-potter-star-was-stimmt-mit-seinen-augen-nichtjpg,id=ac02185e,b=bravo,w=1200,rm=sk.jpeg",
-                  "Prof. Hagrid":     "https://ostatniatawerna.pl/wp-content/cache/thumb/7c/f366d57c85cd27c_730x452.jpg",
-                  "Prof. Trelawney":  "https://www.tafce.com/images/thumb/9/9b/Professor_Sybil_Trelawney_HPATOOTP_-_Edited.png/350px-Professor_Sybil_Trelawney_HPATOOTP_-_Edited.png",
-                  "Prof. Flitwick":   "https://www.superherodb.com/pictures2/portraits/10/050/13801.jpg?v=1637971200",
-                  "Mr. Filch":        "https://www.tafce.com/images/c/c6/Mr_Filch_HPATGOF_-_Edited.png",}
+               "great-hall":              0,
+               "portraits":               0,
+               "dueling-club":            0,
+               "diagon-alley":            0,
 
-houses = {"gryffindor": {"emoji": "<:gryffindor:1255656359190462484> Gryffindor", "crest": "https://static.wikia.nocookie.net/pottermore/images/1/16/Gryffindor_crest.png/revision/latest?cb=20111112232412"},
+               "charms":                  0,
+               "greenhouse":              0,
+               "kitchen":                 0,
+               "dada":                    0,
+               
+               "gallery":                 0,
+               "frog-choir":              0,
+               "the-quibbler":            0,
+               "weasleys-wizard-wheezes": 0,
+               "hagrids-hut":             0,
+               "wizard-cards":            0,
+               "crystal-ball":            0,
+
+               "pensieve":                0,}
+
+channel_ids_test = {"assets": channel_ids["assets"],}
+channel_ids_test.update({key: channel_ids["secret-lab"] for key in channel_ids if key not in list(channel_ids_test.keys())})
+
+############################################################################################################
+
+system_embed_color = 16777215 # white
+
+wait_for = 2 # seconds
+
+weekdays = {0:"Monday", 1:"Tuesday", 2:"Wednesday", 3:"Thursday", 4:"Friday", 5:"Saturday", 6:"Sunday"}
+months   = {"01|January": 1, "02|February": 2, "03|March": 3, "04|April": 4, "05|May": 5, "06|June": 6, "07|July": 7, "08|August": 8, "09|September": 9, "10|October": 10, "11|November": 11, "12|December": 12}
+
+numbers = {0: "0️⃣", 1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣", 6: "6️⃣", 7: "7️⃣", 8: "8️⃣", 9: "9️⃣"}
+
+houses = {"other"     : {"emoji": "",                                             "crest": ""}, #for BOTS
+          "gryffindor": {"emoji": "<:gryffindor:1255656359190462484> Gryffindor", "crest": "https://static.wikia.nocookie.net/pottermore/images/1/16/Gryffindor_crest.png/revision/latest?cb=20111112232412"},
           "hufflepuff": {"emoji": "<:hufflepuff:1255656360780238849> Hufflepuff", "crest": "https://static.wikia.nocookie.net/pottermore/images/5/5e/Hufflepuff_crest.png/revision/latest?cb=20111112232427"},
           "ravenclaw" : {"emoji": "<:ravenclaw:1255656362617212999> Ravenclaw",   "crest": "https://static.wikia.nocookie.net/pottermore/images/4/40/Ravenclaw_Crest_1.png/revision/latest?cb=20140604194505"},
-          "slytherin" : {"emoji": "<:slytherin:1255656364244729856> Slytherin",   "crest": "https://static.wikia.nocookie.net/pottermore/images/4/45/Slytherin_Crest.png/revision/latest?cb=20111112232353"},
-          "BOTS"      : {"emoji": "",                                             "crest": ""},}
+          "slytherin" : {"emoji": "<:slytherin:1255656364244729856> Slytherin",   "crest": "https://static.wikia.nocookie.net/pottermore/images/4/45/Slytherin_Crest.png/revision/latest?cb=20111112232353"},}
 
 def houses_names_list(is_short=True):
     if is_short:
-        return list(houses)[:-1]
+        return list(houses)[1:]
     else:
         return list(houses)
+
+custom_avatars = {"Mr. Filch":        "https://www.tafce.com/images/c/c6/Mr_Filch_HPATGOF_-_Edited.png",
+                  "Prof. Dumbledore": "https://static.wikia.nocookie.net/harrypotter/images/8/82/ProfessorDumbledore.jpg",
+                  "Prof. Flitwick":   "https://files.catbox.moe/9cfhlt.jpg",
+                  "Prof. Hagrid":     "https://ostatniatawerna.pl/wp-content/cache/thumb/7c/f366d57c85cd27c_730x452.jpg",
+                  "Prof. McGonagall": "https://m.natemat.pl/4cccf528bb2fabc88d662c3ac8a519ef,922,0,0,0.png",
+                  "Prof. Slughorn":   "https://fwcdn.pl/cpo/03/33/333/199.4.jpg",
+                  "Prof. Snape":      "https://images.bravo.de/harry-potter-star-was-stimmt-mit-seinen-augen-nichtjpg,id=ac02185e,b=bravo,w=1200,rm=sk.jpeg",
+                  "Prof. Sprout":     "https://m.media-amazon.com/images/M/MV5BMzY1ZTFlMTctYmNmMC00MWQyLWI1MDAtOGM5N2MyZGI5N2JkXkEyXkFqcGc@._V1_QL75_UX331_.jpg",
+                  "Prof. Trelawney":  "https://www.tafce.com/images/thumb/9/9b/Professor_Sybil_Trelawney_HPATOOTP_-_Edited.png/350px-Professor_Sybil_Trelawney_HPATOOTP_-_Edited.png",}
 
 housecup_disciplines_names = {0: "Best Partners",
                               1: "Dance Club",
@@ -74,55 +124,34 @@ housecup_disciplines_names = {0: "Best Partners",
                               3: "History of Magic",
                               4: "Muggle Studies",
                               5: "Casual Matches",
-                              6: "Qudditch",}
+                              6: "Qudditch",
+                              7: "Gobstones Showdown",}
 
-gameserver_timezone = ZoneInfo("Africa/Khartoum")
-main_timezone = ZoneInfo("Europe/London")
+form_answers = ["🤺 Solo Dueling",
+                "🤺🤺 Duo Dueling",
+                "😎🤺 Casual Matches",
+                "🧙🌳 Club Adventures",
+                "🧙🧙 Club Events (Dance / Quiz / Duel Tournament)",
+                "📚 Classes",
+                "🧹 Quidditch",
+                "🌳 Solo Forbidden Forest",
+                "🌳🌳 Team Forbidden Forest (OTP / Gold / Echos)",
+                "🌹 Verdant Victories",
+                "🪖 Wizard's Warboard",
+                "🌱 Herbology",
+                "🥣 Gastronomy",
+                "🕺💃 Dancing",
+                "🏠 Decorating Space",
+                "📸 Photoshoots",]
 
-weekdays = {0:"Monday", 1:"Tuesday", 2:"Wednesday", 3:"Thursday", 4:"Friday", 5:"Saturday", 6:"Sunday"}
-months   = {"01|January": 1, "02|February": 2, "03|March": 3, "04|April": 4, "05|May": 5, "06|June": 6, "07|July": 7, "08|August": 8, "09|September": 9, "10|October": 10, "11|November": 11, "12|December": 12}
-
-time_trigger = {
-    "game_reset":    time(hour=4,  minute=0,  second=0, tzinfo=gameserver_timezone), # UTC+2 - 03:00 - exact
-    "morning":       time(hour=7,  minute=0,  second=0, tzinfo=main_timezone),       # UTC+1 - 08:00 - exact
-    "weekly_cards":  time(hour=16, minute=59, second=0, tzinfo=gameserver_timezone), # UTC+2 - 16:00 - exact
-    "housecup":      time(hour=19, minute=0,  second=0, tzinfo=gameserver_timezone), # UTC+2 - 18:00 - 24 h early
-    "club_events":   time(hour=19, minute=25, second=0, tzinfo=main_timezone),       # UTC+1 - 20:30 - 5 min early
-    "game_midnight": time(hour=23, minute=0,  second=0, tzinfo=gameserver_timezone), # UTC+2 - 23:00 - 1 h early
-    "midnight":      time(hour=23, minute=0,  second=0, tzinfo=main_timezone),       # UTC+1 - 24:00 - 1 h early
-}
-
-def notification_dict(is_short=False):
-    full_dict = {"Welcome": None,
-                 "Level Up": None,
-                 "Birthday": "morning",
-                 "Card - Matagot": "weekly_cards",
-                 "Card - Book of Monsters": "weekly_cards",
-                 "Card - Cornish Pixies": "weekly_cards",
-                 "Housecup": "housecup",
-                 "Club Events": "club_events",
-                 "Club Points": "club_events",
-                 "Maintenance": "game_midnight",
-                 "Rankings": "midnight",}
-    
-    if is_short:
-        seen, time_triggers = set(), set(time_trigger.keys())
-
-        short_dict = {}
-        for key, value in full_dict.items():
-            if (value not in seen) and (value in time_triggers):
-                short_dict[key] = value
-                seen.add(value)
-    
-        return short_dict
-    return full_dict
+############################################################################################################
 
 # Complete list at:
 # https://harrypotter.fandom.com/wiki/List_of_creatures
 pets = {
-    "0":  {"name": "Flobberworm",                "url": "https://www.hp-lexicon.org/wp-content/uploads/2017/03/flobberworm.jpg"},                                                             #100 xp to finish
+    "0":  {"name": "Flobberworm",                "url": "https://files.catbox.moe/k2qcmw.jpg"},                                                                                               #100 xp to finish
     "1":  {"name": "Manticore",                  "url": "https://media.harrypotterfanzone.com/baby-manticore.jpg"},                                                                           #255
-    "2a": {"name": "Cornish Pixie",              "url": "attachment://cornish_pixie.png"},                                                                                                           #475
+    "2a": {"name": "Cornish Pixie",              "url": "attachment://cornish_pixie.png"},                                                                                                    #475
     "2b": {"name": "Lobalug",                    "url": "https://static.wikia.nocookie.net/harrypotter/images/1/1a/Lobalug.png/revision/latest?cb=20171226234304"},
     "3":  {"name": "Gnome",                      "url": "https://i.pinimg.com/736x/7b/42/34/7b4234641bc6118dc878d279fe706540.jpg"},                                                           #770
     "4":  {"name": "Bowtruckle",                 "url": "https://i.pinimg.com/736x/68/81/f5/6881f5322ec892c779b0e0881e67e7f4.jpg"},                                                           #1150
@@ -151,8 +180,8 @@ pets = {
     "20b":{"name": "Ashwinder",                  "url": "attachment://ashwinder.png"},
     "21": {"name": "Golden Snidget",             "url": "https://i.pinimg.com/736x/15/d0/c1/15d0c13c0f6a87f9daddc27ed5ae643a.jpg"},                                                           #30305
     "22": {"name": "Augurey",                    "url": "https://cdnb.artstation.com/p/assets/images/images/031/592/281/large/kate-vigdis-.jpg?1621081086"},                                  #33925
-    "23": {"name": "Thunderbird",                "url": "attachment://thunderbird.png"},                                                                                                       #37820
-    "24": {"name": "Fire Crab",                  "url": "attachment://fire_crab.png"},                                                                                                       #42000
+    "23": {"name": "Thunderbird",                "url": "attachment://thunderbird.png"},                                                                                                      #37820
+    "24": {"name": "Fire Crab",                  "url": "attachment://fire_crab.png"},                                                                                                        #42000
     "25a":{"name": "Blast-Ended Skrewt",         "url": "https://blooloop.com/wp-content/uploads/2019/04/blast-ended-skrewt-small.jpeg"},                                                     #46475
     "25b":{"name": "Dugbog",                     "url": "https://cdnb.artstation.com/p/assets/images/images/075/126/241/large/maike-otto-dugbog-keyvisual-background.jpg?1713815446"},
     "26": {"name": "Erumpent",                   "url": "https://static.wikia.nocookie.net/harrypotter/images/6/61/Erumpent_Concept_Art_FB1.png/revision/latest"},                            #51255
@@ -166,7 +195,7 @@ pets = {
     "31": {"name": "Unicorn",                    "url": "https://contentful.harrypotter.com/usf1vwtuqyxm/7LdBbmsnpgs6mCHpRrnGal/df819e7c91f65eef31fdb7e3f87d1424/unicorn_2_1800x1248.png"},   #80080
     "32a":{"name": "Chimaera",                   "url": "https://i.pinimg.com/736x/ad/ff/e0/adffe0d43f0cf86f67c6442d84ba038c.jpg"},                                                           #86900
     "32b":{"name": "Giant Squid",                "url": "attachment://giant_squid.png"},
-    "33": {"name": "Manticore Mother",           "url": "attachment://manticore_mother.png"},                                                                                                       #94195
+    "33": {"name": "Manticore Mother",           "url": "attachment://manticore_mother.png"},                                                                                                 #94195
     "34a":{"name": "Zouwu",                      "url": "https://i.pinimg.com/736x/bb/db/dd/bbdbddecb24b4d30917f7a994dc3c5ca.jpg"},                                                           #101775
     "34b":{"name": "Three-Headed Dog",           "url": "https://i.pinimg.com/736x/44/68/4f/44684f3a9c4d64ba08c48710d9c14f9e.jpg"}, 
     "35": {"name": "Phoenix",                    "url": "https://i.pinimg.com/736x/39/8f/b9/398fb97264ea72317170c0680d696d60.jpg"},                                                           #109750
@@ -185,23 +214,45 @@ pets = {
     "40h":{"name": "Hungarian Horntail Dragon",  "url": "https://i.pinimg.com/736x/3a/fd/c3/3afdc3c0dcb5fdf834c52c69d453fa1b.jpg"},                                                           # BLACK
 "unknown":{"name": "Error",                      "url": "https://www.litespeedtech.com/support/wiki/lib/exe/fetch.php/litespeed_wiki:config:404.png?cache="},                                 # ERROR
 }
-form_answers = ["🤺 Solo Dueling",
-                "🤺🤺 Duo Dueling",
-                "😎🤺 Casual Matches",
-                "🧙🌳 Club Adventures",
-                "🧙🧙 Club Events (Dance / Quiz / Duel Tournament)",
-                "📚 Classes",
-                "🧹 Quidditch",
-                "🌳 Solo Forbidden Forest",
-                "🌳🌳 Team Forbidden Forest (OTP / Gold / Echos)",
-                "🌹 Verdant Victories",
-                "🌱 Herbology",
-                "🕺💃 Dancing",
-                "📸 Photoshoots",]
 
-wait_for = 2 # seconds
-discord_token = os.getenv("DISCORD_TOKEN")
-bot_token = os.getenv("DISCORD_BOT_TOKEN")
-system_embed_color = 16777215
+############################################################################################################
+
+gameserver_timezone = ZoneInfo("Africa/Khartoum")
+main_timezone       = ZoneInfo("Europe/London")
 
 base_housecup_date = datetime(year=2025, month=1, day=10, tzinfo=gameserver_timezone)
+
+time_trigger = {
+    "game_reset":    time(hour=4,  minute=0,  second=0, tzinfo=gameserver_timezone), # UTC+2 - 03:00 - exact
+    "morning":       time(hour=7,  minute=0,  second=0, tzinfo=main_timezone),       # UTC+1 - 08:00 - exact
+    "weekly_cards":  time(hour=16, minute=59, second=0, tzinfo=gameserver_timezone), # UTC+2 - 16:00 - exact
+    "housecup":      time(hour=19, minute=0,  second=0, tzinfo=gameserver_timezone), # UTC+2 - 18:00 - 24 h early
+    "club_events":   time(hour=19, minute=15, second=0, tzinfo=main_timezone),       # UTC+1 - 20:30 - 15 min early
+    "game_midnight": time(hour=23, minute=0,  second=0, tzinfo=gameserver_timezone), # UTC+2 - 23:00 - 1 h early
+    "midnight":      time(hour=23, minute=0,  second=0, tzinfo=main_timezone),       # UTC+1 - 24:00 - 1 h early
+}
+
+def notification_dict(is_short=False):
+    full_dict = {"Welcome":                  None,
+                 "Level Up":                 None,
+                 "Birthday":                "morning",
+                 "Card - Matagot":          "weekly_cards",
+                 "Card - Book of Monsters": "weekly_cards",
+                 "Card - Cornish Pixies":   "weekly_cards",
+                 "Housecup":                "housecup",
+                 "Club Events":             "club_events",
+                 "Club Points":             "club_events",
+                 "Maintenance":             "game_midnight",
+                 "Rankings":                "midnight",}
+    
+    if is_short:
+        seen, time_triggers = set(), set(time_trigger.keys())
+
+        short_dict = {}
+        for key, value in full_dict.items():
+            if (value not in seen) and (value in time_triggers):
+                short_dict[key] = value
+                seen.add(value)
+    
+        return short_dict
+    return full_dict
