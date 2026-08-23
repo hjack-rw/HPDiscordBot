@@ -1,0 +1,77 @@
+# Copy this file to server_config.toml at the repo root and fill in your server's real IDs.
+# server_config.toml is gitignored - it's never committed, since these values only
+# make sense for one specific Discord server/bot application.
+
+bot_id      = 0 # the bot's own application/user ID
+dev_user_id = 0 # your (the bot owner's) personal Discord user ID
+webhook_id  = 0 # webhook used for impersonation (Polyjuice Potion command)
+server_id   = 0 # the Discord server (guild) this bot runs in
+
+club_name       = "" # full community/club name, used in messages
+club_name_short = "" # short form, used where space is tight
+
+# Channel category IDs, keyed by purpose - add/remove keys to match your server.
+[channel_sections_ids]
+archive  = 0
+team     = 0
+club     = 0
+tickets  = 0
+general  = 0
+guides   = 0
+offtopic = 0
+
+# Individual channel IDs, keyed by purpose - add/remove keys to match your server.
+[channel_ids]
+welcome                 = 0
+
+secret-lab              = 0
+assets                  = 0
+staffroom               = 0
+absence-list            = 0
+points-log              = 0
+the-sorting-hat         = 0
+
+rules                   = 0
+marauders-map           = 0
+announcements           = 0
+the-daily-prophet       = 0
+important-polls         = 0
+portkey-arrival         = 0
+leaderboard             = 0
+
+owlery                  = 0
+come-and-go             = 0
+
+great-hall              = 0
+portraits               = 0
+dueling-club            = 0
+diagon-alley            = 0
+
+charms                  = 0
+greenhouse              = 0
+kitchen                 = 0
+dada                    = 0
+
+gallery                 = 0
+frog-choir              = 0
+the-quibbler            = 0
+weasleys-wizard-wheezes = 0
+hagrids-hut             = 0
+wizard-cards            = 0
+crystal-ball            = 0
+
+pensieve                = 0
+
+# Webhook-impersonation avatars, keyed by slugified display name - message id of that
+# avatar's image in the #assets channel (scripts/upload_avatars.py fills this in for you;
+# see functions.py's get_avatar_url for why this is a message id and not a URL).
+[custom_avatars]
+mr_filch        = 0
+prof_dumbledore = 0
+prof_flitwick   = 0
+prof_hagrid     = 0
+prof_mcgonagall = 0
+prof_slughorn   = 0
+prof_snape      = 0
+prof_sprout     = 0
+prof_trelawney  = 0

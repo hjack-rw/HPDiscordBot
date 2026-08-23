@@ -1,6 +1,7 @@
 # Local/host-only files (never committed, live only on the deploying machine)
 .gitignore
 pre_init.py
+server_config.toml
 test.py
 
 # Python artifacts
@@ -21,5 +22,5 @@ data/images.zip
 test_images/
 
 # Env / tooling
-src/env
+env
 .claude/

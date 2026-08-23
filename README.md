@@ -41,11 +41,13 @@ Python · discord.py · SQLite · Pillow (image generation) · python-dotenv
 pip install -r requirements.txt
 ```
 
-Create `src/env`:
+Create `env` at the repo root:
 ```
 DISCORD_TOKEN=your_token_here
 DISCORD_BOT_TOKEN=your_bot_token_here
 ```
+
+Copy `server_config.example.toml` to `server_config.toml` at the repo root and fill in your server's real IDs (bot ID, dev user ID, webhook ID, server ID, club name, and every channel/section ID the bot references). The bot won't start without it.
 
 ```bash
 python main.py

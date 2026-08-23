@@ -6,6 +6,7 @@ from copy      import deepcopy
 from csv       import DictReader
 from datetime  import datetime, timedelta
 from functools import reduce, wraps
+from glob      import glob
 from io        import BytesIO, StringIO
 from os        import getcwd, makedirs, path
 from PIL       import Image, ImageDraw, ImageFilter, ImageFont, UnidentifiedImageError
@@ -197,13 +198,35 @@ def change_webhook_channel(target_channel):
     return session.patch(f"https://discordapp.com/api/webhooks/{vars.webhook_id}", json=payload, headers=headers,)
 
 
+# webhook avatar_url must be a plain URL (no attachment:// support, unlike embeds) - Discord's
+# CDN attachment URLs are signed and expire (~24h), so a hardcoded one would just rot slower
+# than the original hotlinks. Instead custom_avatars maps name -> #assets message id, and this
+# re-fetches that message (Discord always hands back a freshly-signed URL) with a short cache
+# to avoid doing that on every single webhook send.
+avatar_url_cache = {} # message_id -> (url, fetched_at)
+AVATAR_CACHE_TTL = timedelta(hours=6)
+
+async def get_avatar_url(guild, message_id):
+    cached = avatar_url_cache.get(message_id)
+    if cached and (datetime.now() - cached[1]) < AVATAR_CACHE_TTL:
+        return cached[0]
+
+    assets_channel = guild.get_channel(vars.channel_ids["assets"])
+    message = await assets_channel.fetch_message(message_id)
+    url = message.attachments[0].url
+
+    avatar_url_cache[message_id] = (url, datetime.now())
+    return url
+
+
 async def send_webhook(target_channel, user_name, user_avatar_url=None, content="", embed=None, file=None, view=None):
 
     if user_avatar_url is None:
         try:
-            user_avatar_url = vars.custom_avatars[user_name]
+            message_id = vars.custom_avatars[slugify(user_name)]
         except KeyError:
-            user_avatar_url = vars.custom_avatars["Prof. Dumbledore"]
+            message_id = vars.custom_avatars["prof_dumbledore"]
+        user_avatar_url = await get_avatar_url(target_channel.guild, message_id)
 
     async with webhook_lock:
         response = await asyncio.to_thread(change_webhook_channel, target_channel)
@@ -391,11 +414,6 @@ def get_image(url, delay=2, max_retries=10):
             else:
                 log(f"Failed to download image after {max_retries} attempts.")
                 return None
-
-async def get_image_from_channel(channel, message_id):
-    message = await channel.fetch_message(message_id)
-    return message.attachments[0]
-
 
 def get_avatar(user, none=False):
     try:
@@ -923,9 +941,14 @@ def print_portkey(member, portkey):
 
 ############################################################################################################
 
-async def print_suitcase(images, info, level):
+def slugify(name):
+    ''' shared with scripts/migrate_pet_images.py - both sides need identical slug logic
+    or a dropped-in filename won't match the name it's supposed to belong to '''
+    return sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+async def print_suitcase(info, level):
     embed = Embed(color=vars.system_embed_color, title=f"{info['username']}'{'s' if info['add_s'] else ''} Suitcase:", description="⭐ __Current Level__ ⭐" if info['current_level'] == level else "")
-    
+
     if info['current_level']:
         pet = get_animal_rank(user=info, level=level)
         embed.set_footer(text=f"Level: {info['current_level']},​ ​ ​XP: {round(info['xp_for_next_level']*info['progress'])} / {info['xp_for_next_level']}​ ​ ({round(info['progress']*100, 2)}%)")
@@ -934,13 +957,20 @@ async def print_suitcase(images, info, level):
         embed.set_footer(text=f"Level: ♾️")
 
     embed.add_field(name="", value=f"*{pet['name']}* (Level {level})")
-    embed.set_image(url=pet["url"])
 
-    match = search(r'attachment://(.*?)\.png', pet["url"])
-    if match:
-        return embed, (await images.initialize(filename__has="pet", filename__like=match.group(1))).get()
-    else:
-        return embed, MISSING
+    # pets are a fixed, code-defined catalog (not admin-uploaded content), so they're plain
+    # files under data/images/pets/, added by dropping a file there - no DB, no url stored.
+    # image_name is independent of name (renaming a pet's display name shouldn't silently
+    # break its file lookup). Extension on disk can be anything (png/jpg/webp/...);
+    # attachment:// always names it .png since Discord content-sniffs rather than trusting
+    # the filename extension.
+    slug = pet["image"]
+    local_files = glob(path.join(vars.image_data_path, "pets", f"{slug}.*"))
+    if local_files:
+        embed.set_image(url=f"attachment://{slug}.png")
+        return embed, File(fp=local_files[0], filename=f"{slug}.png")
+
+    return embed, MISSING
 
 ############################################################################################################
 
@@ -1010,13 +1040,17 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
         event_info["location"] = "HP: Magic Awakened ឵឵(Sphinx)"
 
     
-    # get image
-    channel = server.get_channel(channel_ids["assets"])
+    # get image - event banners are fixed, code-defined assets (data/images/events/),
+    # same convention as pets/houses: no #assets channel round-trip, no DB
+    image_path = glob(path.join(vars.image_data_path, "events", f"{event_info['image']}.*"))
 
     if not vars.test_bot["test_tasks"]:
 
         # create event
         try:
+            with open(image_path[0], "rb") as file:
+                image_bytes = file.read()
+
             await server.create_scheduled_event(name=event_name,
                                                 start_time=beginning.astimezone() if beginning > date else (date + timedelta(minutes=2)).astimezone(),
                                                 end_time=ending.astimezone(),
@@ -1024,12 +1058,12 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
                                                 location=event_info["location"],
                                                 privacy_level=PrivacyLevel.guild_only,
                                                 entity_type=EntityType.external,
-                                                image=get_image(url=await get_image_from_channel(channel, message_id=event_info["image_id"])))
+                                                image=image_bytes)
         except DiscordServerError:
             log("Could not create event... Discord API error!")
         except CommandInvokeError:
             log("Could not create event... Bad timestamp!")
-        except ValueError:
+        except (ValueError, IndexError):
             log("Could not create event... Image not found!")
     
     
@@ -1118,21 +1152,21 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
                       "account":        "Prof. Flitwick",}
 
         if event_name == "Card - Matagot":
-            event_info["image_id"] = "0"
+            event_info["image"] = "card_matagot"
             event_info["title"] = "<Matagot! (rare)>"
-            
+
             event_info["description"] = event_info["description"].replace("/000", "/0")
             event_info["description"] = replace_multiple(event_info["description"], ["Staircase", "\nMatagot", "next to the Transfiguration Classroom", "Hand it Over to Hagrid", "1 copy"])
-        
+
         elif event_name == "Card - Book of Monsters":
-            event_info["image_id"] = "0"
+            event_info["image"] = "card_book_of_monsters"
             event_info["title"] = "<Book of Monsters! (rare)>"
 
             event_info["description"] = event_info["description"].replace("/000", "/0")
             event_info["description"] = replace_multiple(event_info["description"], ["History of Magic Classroom", "Book", "in the corner", "Stroke the Spine and Then Open It", "1 copy"])
-            
+
         elif event_name == "Card - Cornish Pixies":
-            event_info["image_id"] = "0"
+            event_info["image"] = "card_cornish_pixies"
             event_info["title"] = "<Cornish Pixies! (common)>"
             
             event_info["description"] = event_info["description"].replace("/000", "/0")
@@ -1144,7 +1178,7 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
     elif event_name == "Housecup":
         discipline = variables[0]
         
-        event_info = {"image_id":    "0",
+        event_info = {"image":       "housecup",
                       "title":      f"<{vars.housecup_disciplines_names[discipline]}!>",
                       "subtitle":    "Reminder: <House Cup>!",
                       "description": "Make sure you be there and may the best house win!",
@@ -1155,7 +1189,7 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
 
 
     elif event_name == "Club Events":
-        event_info = {"image_id":    "0",
+        event_info = {"image":       "club_events",
                       "title":      f"{vars.club_name_short.upper()} Club Events!",
                       "subtitle":   f"Reminder: {vars.weekdays[date.weekday()]}!",
                       "description": "**We start 000!**\nWe will begin with a Quiz, and after roughly 20 min we go over to a Dance!",
@@ -1176,7 +1210,7 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
 
 
     elif event_name == "Maintenance":
-        event_info = {"image_id":    "0",
+        event_info = {"image":       "maintenance",
                       "title":       "",
                       "subtitle":    "Reminder: <Maintenance!>",
                       "description": "**It starts 000!**\nDuring this period the game will be unavailable!",

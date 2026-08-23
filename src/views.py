@@ -1,4 +1,3 @@
-from src.db import Images
 from src.functions  import safe_handle_response, disable_after, print_house_members, print_suitcase, turn_limit
 from src.variables  import club_name_short, houses_names_list, pets
 
@@ -144,11 +143,9 @@ class PetsView(View):
             self.max_pet = len(pets)
             self.pet     = 0
 
-        self.images = Images
-    
     # print a new pet
     async def print_pet(self, interaction):
-        embed, file = await print_suitcase(images=self.images, info=self.info, level=self.pet)
+        embed, file = await print_suitcase(info=self.info, level=self.pet)
         await interaction.response.send_message(embed=embed, file=file, view=self, ephemeral=True)
 
     # print a new pet

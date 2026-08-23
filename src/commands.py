@@ -323,7 +323,11 @@ class AdminCommands(Group):
                 custom_housecup_embed.title += f"\n {winning_house.capitalize()} !!!"
                 custom_housecup_embed.set_thumbnail(url=vars.houses[winning_house]["crest"])
 
-                await custom_housecup_message.edit(content="", embed=custom_housecup_embed)
+                # crest is attachment://<house>.png - the file has to be attached to this same
+                # edit for that to resolve (message was created with no attachments, so nothing
+                # existing gets clobbered by the attachments= replace-all semantics)
+                crest_file = File(fp=vars.image_data_path + f"houses/{winning_house}.png", filename=f"{winning_house}.png")
+                await custom_housecup_message.edit(content="", embed=custom_housecup_embed, attachments=[crest_file])
 
 
     @command(name="tweak_xp")
