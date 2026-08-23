@@ -10,6 +10,20 @@ server_id   = 0 # the Discord server (guild) this bot runs in
 club_name       = "" # full community/club name, used in messages
 club_name_short = "" # short form, used where space is tight
 
+members_list_message_id = 0 # pinned message in marauders-map the member-list view edits in place
+
+# Role IDs pinged by scheduled reminders.
+[role_ids]
+card_reminder = 0    # pinged for weekly free-card reminders
+club_events   = 0    # pinged for Club Events / Club Points reminders
+staff         = [0, 0] # pinged for staff-only reminders (Rankings, Club Points)
+
+# Message IDs the weekly free-card reminders deep-link to (in the "charms" channel).
+[card_message_ids]
+card_matagot          = 0
+card_book_of_monsters = 0
+card_cornish_pixies   = 0
+
 # Channel category IDs, keyed by purpose - add/remove keys to match your server.
 [channel_sections_ids]
 archive  = 0

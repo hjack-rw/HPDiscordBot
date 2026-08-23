@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import src.variables as vars
 from src.functions import notifications
 
 
@@ -118,7 +119,9 @@ async def test_rankings_sends_to_staffroom_mentioning_staff_roles(fake_server, f
     await notifications.print_notification(fake_server, "Rankings", is_task=False)
 
     kwargs = sent_kwargs(fake_send_webhook)
-    assert "0" in kwargs["content"]
+    staff_a, staff_b = vars.role_ids["staff"]
+    assert f"<@&{staff_a}>" in kwargs["content"]
+    assert f"<@&{staff_b}>" in kwargs["content"]
 
 
 # --- delegated events (build event_info, hand off to set_event_and_notification) ---

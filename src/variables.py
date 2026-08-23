@@ -57,6 +57,10 @@ server_id   = server_config["server_id"]
 club_name       = server_config["club_name"]
 club_name_short = server_config["club_name_short"]
 
+members_list_message_id = server_config["members_list_message_id"]
+role_ids                = server_config["role_ids"]
+card_message_ids        = server_config["card_message_ids"]
+
 channel_sections_ids = server_config["channel_sections_ids"]
 channel_ids           = server_config["channel_ids"]
 

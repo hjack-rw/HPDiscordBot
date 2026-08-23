@@ -202,23 +202,25 @@ async def _notify_birthday(server, date, variables, same_day):
 
 
 # the 3 weekly free-card reminders only differ by these 4 values - one data table plus one
-# handler instead of 3 near-identical copy-pasted functions
-CARD_VARIANTS = {"Card - Matagot":          {"link_suffix": "0", "image": "card_matagot", "title": "<Matagot! (rare)>",
+# handler instead of 3 near-identical copy-pasted functions. image/title/replacements stay
+# hardcoded (they're content, not per-deployment config); the message id each one deep-links
+# to is server-specific, so that comes from server_config.toml's [card_message_ids].
+CARD_VARIANTS = {"Card - Matagot":          {"card_message_key": "card_matagot", "image": "card_matagot", "title": "<Matagot! (rare)>",
                                               "replacements": ["Staircase", "\nMatagot", "next to the Transfiguration Classroom", "Hand it Over to Hagrid", "1 copy"]},
-                  "Card - Book of Monsters":{"link_suffix": "0", "image": "card_book_of_monsters", "title": "<Book of Monsters! (rare)>",
+                  "Card - Book of Monsters":{"card_message_key": "card_book_of_monsters", "image": "card_book_of_monsters", "title": "<Book of Monsters! (rare)>",
                                               "replacements": ["History of Magic Classroom", "Book", "in the corner", "Stroke the Spine and Then Open It", "1 copy"]},
-                  "Card - Cornish Pixies":  {"link_suffix": "0", "image": "card_cornish_pixies", "title": "<Cornish Pixies! (common)>",
+                  "Card - Cornish Pixies":  {"card_message_key": "card_cornish_pixies", "image": "card_cornish_pixies", "title": "<Cornish Pixies! (common)>",
                                               "replacements": ["Library", "Pixies", "first bookcase row left", "Use Glacius.", "3 copies"]},}
 
 
-async def _notify_card(server, date, variables, same_day, *, link_suffix, image, title, replacements):
+async def _notify_card(server, date, variables, same_day, *, card_message_key, image, title, replacements):
     # replace_multiple's "001".."005" placeholders must be substituted before the real
     # message-id link is spliced in - the link is a long, effectively-arbitrary Discord
     # snowflake, and a blind string-replace over it could corrupt the URL if it ever
     # happened to contain one of those digit sequences
     location_text = replace_multiple('''Go to the **001** and click on the 002 003!\n\nPick the option: **"004"**!\nYou will get 005 of the card.''', replacements)
 
-    link = f"https://discord.com/channels/0/0/{link_suffix}"
+    link = f"https://discord.com/channels/{vars.server_id}/{channel_ids['charms']}/{vars.card_message_ids[card_message_key]}"
 
     event_info = {"subtitle":       "Reminder: Weekly <Free Card>!",
                   "description":  f"Map: {link}\n{location_text}",
@@ -227,7 +229,7 @@ async def _notify_card(server, date, variables, same_day, *, link_suffix, image,
                   "image":          image,
                   "title":          title,}
 
-    return await set_event_and_notification(server, event_info, date, event_duration=(4,0,0), start_time=(17,0,0), role="<@&0>")
+    return await set_event_and_notification(server, event_info, date, event_duration=(4,0,0), start_time=(17,0,0), role=f"<@&{vars.role_ids['card_reminder']}>")
 
 
 async def _notify_housecup(server, date, variables, same_day):
@@ -251,15 +253,16 @@ async def _notify_club_events(server, date, variables, same_day):
                   "footer":   '''"Place your right hand on my waist and...\nOne, two, three... One, two, three..."''',
                   "account":     "Prof. McGonagall",}
 
-    return await set_event_and_notification(server, event_info, date, event_duration=(1,0,0), start_time=(19,30,0), role="<@&0>")
+    return await set_event_and_notification(server, event_info, date, event_duration=(1,0,0), start_time=(19,30,0), role=f"<@&{vars.role_ids['club_events']}>")
 
 
 async def _notify_club_points(server, date, variables, same_day):
     channel = server.get_channel(channel_ids["announcements"])
+    staff_a, staff_b = vars.role_ids["staff"]
 
-    event_info = {"mention":     "Mention: <@&0>",
+    event_info = {"mention":     f"Mention: <@&{vars.role_ids['club_events']}>",
                   "description": "Reminder to all who haven't earned\ntheir 100 Club points yet!\n\n"\
-                                 "Please do so by the **end of the week**\nor inform a <@&0> / <@&0>\nif you are unable to do so!",
+                                 f"Please do so by the **end of the week**\nor inform a <@&{staff_a}> / <@&{staff_b}>\nif you are unable to do so!",
                   "footer":   '''"And be warned... I shall know if you have not practiced."''',
                   "account":     "Prof. Snape",}
 
@@ -279,8 +282,9 @@ async def _notify_maintenance(server, date, variables, same_day):
 
 async def _notify_rankings(server, date, variables, same_day):
     channel = server.get_channel(channel_ids["staffroom"])
+    staff_a, staff_b = vars.role_ids["staff"]
 
-    event_info = {"mention":     "Mention: <@&0> <@&0>",
+    event_info = {"mention":     f"Mention: <@&{staff_a}> <@&{staff_b}>",
                   "description": "Dear Staff,\nremember to take a picture of this week's top 3 students!\n\n(Please post the screenshots below!)",
                   "footer":   '''"But be quick! It is not wise to be wandering around this late hour."''',
                   "account":     "Prof. Dumbledore",}

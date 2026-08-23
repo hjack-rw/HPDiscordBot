@@ -108,6 +108,25 @@ def change_webhook_channel(target_channel):
     return session.patch(f"https://discordapp.com/api/webhooks/{vars.webhook_id}", json=payload, headers=headers,)
 
 
+# tracks which channel the shared webhook is currently pointed at - repointing is a real HTTP
+# round-trip, and back-to-back sends/edits to the same channel don't need to repeat it. Only
+# meaningful while held under webhook_lock (below), same as the webhook itself.
+_webhook_channel_id = None
+
+async def _ensure_webhook_channel(target_channel):
+    global _webhook_channel_id
+
+    if _webhook_channel_id == target_channel.id:
+        return True
+
+    response = await asyncio.to_thread(change_webhook_channel, target_channel)
+    if response.status_code != 200:
+        return False
+
+    _webhook_channel_id = target_channel.id
+    return True
+
+
 def get_avatar(user, none=False):
     try:
         return user.avatar._url
@@ -157,27 +176,23 @@ async def send_webhook(target_channel, user_name, user_avatar_url=None, content=
         user_avatar_url = await get_avatar_url(target_channel.guild, message_id)
 
     async with webhook_lock:
-        response = await asyncio.to_thread(change_webhook_channel, target_channel)
-        #print(response)
-
-        if response.status_code == 200:
-            webhook = [webhook for webhook in await target_channel.webhooks() if webhook.id == vars.webhook_id][0]
-
-            embed = embed if embed else MISSING
-            files = ([file] if file else []) + (extra_files or [])
-            files = files if files else MISSING
-            view = view if view else MISSING
-
-            return await webhook.send(content=content, username=user_name, avatar_url=user_avatar_url, embed=embed, files=files, view=view, wait=True)
-        else:
+        if not await _ensure_webhook_channel(target_channel):
             raise Exception("failed to create webhook")
+
+        webhook = [webhook for webhook in await target_channel.webhooks() if webhook.id == vars.webhook_id][0]
+
+        embed = embed if embed else MISSING
+        files = ([file] if file else []) + (extra_files or [])
+        files = files if files else MISSING
+        view = view if view else MISSING
+
+        return await webhook.send(content=content, username=user_name, avatar_url=user_avatar_url, embed=embed, files=files, view=view, wait=True)
 
 
 async def edit_webhook(target_channel, message_id, embed=None, file=None):
 
     async with webhook_lock:
-        response = await asyncio.to_thread(change_webhook_channel, target_channel)
-        #print(response)
+        await _ensure_webhook_channel(target_channel)
 
         webhook = [webhook for webhook in await target_channel.webhooks() if webhook.id == vars.webhook_id][0]
 

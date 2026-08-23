@@ -1,7 +1,7 @@
 from src.db         import Database, Experience, WelcomeMessages
 from src.functions  import log
 from src.tasks      import *
-from src.variables  import bot_id, channel_ids, channel_ids_test, dev_user_id, is_test_mode, server_id, test_bot
+from src.variables  import bot_id, channel_ids, channel_ids_test, dev_user_id, is_test_mode, members_list_message_id, server_id, test_bot
 from src.views      import WelcomeView, MemberView
 
 import asyncio
@@ -28,7 +28,16 @@ if test_bot["test_body"]:
 class BOT(commands.Bot):
     
     def __init__(self):
-        super().__init__(command_prefix="/", intents=Intents.all(), application_id=bot_id)
+        # Intents.all() also pulls presences (nothing in this codebase reads member status/
+        # voice state) - the most gateway-chatty intent there is, wasted on hosting that's
+        # typically memory-capped. members + message_content are the only privileged
+        # intents actually used (SERVER.members/get_member/fetch_member everywhere;
+        # message.content/.embeds/.attachments in on_message, Add Image, portkey parsing).
+        intents = Intents.default()
+        intents.members         = True
+        intents.message_content = True
+
+        super().__init__(command_prefix="/", intents=intents, application_id=bot_id)
         
         self.server = None
         self.db     = Database
@@ -123,7 +132,7 @@ class BOT(commands.Bot):
         # reactivate MemberView
         CHANNEL = SERVER.get_channel(channel_ids["marauders-map"])
         try:
-            MEMBERS_MESSAGE = await CHANNEL.fetch_message(0)
+            MEMBERS_MESSAGE = await CHANNEL.fetch_message(members_list_message_id)
         except NotFound:
             MEMBERS_MESSAGE = None
 

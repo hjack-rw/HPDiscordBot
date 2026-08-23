@@ -15,6 +15,19 @@ from src.functions import discord_utils
 from src.functions.leaderboard import get_leaderboard_static, draw_infocard, draw_leaderboard, create_leaderboard
 
 
+@pytest.fixture(autouse=True)
+def reset_webhook_module_state():
+    ''' _webhook_channel_id and avatar_url_cache are module-level caches keyed by channel/
+    message id - FakeChannel reuses id=12345 across tests, so a stale cache entry from one
+    test would make the next test skip work it actually needs to exercise. '''
+
+    discord_utils._webhook_channel_id = None
+    discord_utils.avatar_url_cache.clear()
+    yield
+    discord_utils._webhook_channel_id = None
+    discord_utils.avatar_url_cache.clear()
+
+
 def make_png_bytes(size=(4, 4), color=(255, 0, 0)):
     from io import BytesIO
     from PIL import Image
