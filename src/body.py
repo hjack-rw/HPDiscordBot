@@ -1,6 +1,7 @@
 from src.db         import Database, Experience, WelcomeMessages
+from src.functions  import log
 from src.tasks      import *
-from src.variables  import bot_id, channel_ids, channel_ids_test, dev_user_id, server_id, test_bot 
+from src.variables  import bot_id, channel_ids, channel_ids_test, dev_user_id, is_test_mode, server_id, test_bot
 from src.views      import WelcomeView, MemberView
 
 import asyncio
@@ -58,7 +59,7 @@ class BOT(commands.Bot):
 
     # Start event
     async def on_ready(self):        
-        print(f"{'Deployed' if any(test_bot.values()) else 'Logged on as'} {self.user}!")
+        log(f"{'Deployed' if is_test_mode() else 'Logged on as'} {self.user}!")
 
 
         # asynchornous initialization
@@ -73,11 +74,11 @@ class BOT(commands.Bot):
             groups   = [cmd for cmd in synched if isinstance(cmd, Group)]
             commands = [cmd for cmd in synched if not isinstance(cmd, Group)]
 
-            print(f"Synched {len(groups)} group(s)")
-            print(f"With {len(commands) + sum(len(group.commands) for group in groups)} command(s) total")
-        
+            log(f"Synched {len(groups)} group(s)")
+            log(f"With {len(commands) + sum(len(group.commands) for group in groups)} command(s) total")
+
         except Exception as error:
-            print(error)
+            log(str(error))
         
         
         # get SERVER
@@ -120,12 +121,17 @@ class BOT(commands.Bot):
 
         
         # reactivate MemberView
-        CHANNEL         = SERVER.get_channel(channel_ids["marauders-map"])
-        MEMBERS_MESSAGE = await CHANNEL.fetch_message(0)
-        
+        CHANNEL = SERVER.get_channel(channel_ids["marauders-map"])
+        try:
+            MEMBERS_MESSAGE = await CHANNEL.fetch_message(0)
+        except NotFound:
+            MEMBERS_MESSAGE = None
+
         self.members_view = MemberView(members=SERVER.members, message=MEMBERS_MESSAGE)
-        self.add_view(view=self.members_view, message_id=MEMBERS_MESSAGE.id)
-        await self.members_view.print_list()
+
+        if MEMBERS_MESSAGE is not None:
+            self.add_view(view=self.members_view, message_id=MEMBERS_MESSAGE.id)
+            await self.members_view.print_list()
         
 
         if test_bot["test_events"]:

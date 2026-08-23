@@ -3,6 +3,7 @@ from src.functions  import safe_handle_response, disable_after, print_house_memb
 from src.variables  import club_name_short, houses_names_list, pets
 
 from discord.enums         import ButtonStyle
+from discord.errors        import NotFound
 from discord.ext           import commands
 from discord.interactions  import Interaction
 from discord.partial_emoji import PartialEmoji
@@ -194,14 +195,18 @@ class MemberView(View):
     # print a new list
     async def print_list(self, interaction=None):
         list = print_house_members(self.members, house=self.houses[self.page], group=self.groups[self.filter])
-        
+
         if self.message is not None:
-            await self.message.edit(embed=list, view=self)
-        else:
-            if interaction:
-                await interaction.response.send_message(embed=list, view=self, ephemeral=True)
-            else:
-                raise Exception("no interaction has been provided")
+            try:
+                await self.message.edit(embed=list, view=self)
+            # the pinned message was deleted out from under us - degrade to the same
+            # no-message state a missing message at startup already leaves us in
+            except NotFound:
+                self.message = None
+        elif interaction:
+            await interaction.response.send_message(embed=list, view=self, ephemeral=True)
+        # else: no pinned message and no interaction to respond to (e.g. a background
+        # update_members() call while the members-list message doesn't exist) - nothing to do
     
     # change printed members
     async def update_members(self, members):

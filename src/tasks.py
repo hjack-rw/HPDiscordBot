@@ -1,7 +1,7 @@
 import src.variables as vars
 
 from src.db import ExtraVariable, Portkeys
-from src.functions  import get_today, print_notification
+from src.functions  import get_today, log, print_notification
 
 from calendar import isleap
 from datetime import datetime, time, timedelta
@@ -21,7 +21,7 @@ if vars.test_bot["test_tasks"]:
     if minute <= (59 - vars.wait_for):
         minute += vars.wait_for
     else:
-        hour += 1
+        hour = (hour + 1) % 24
         minute = (minute + vars.wait_for) % 60
     tz = now.astimezone().tzinfo
 
@@ -61,7 +61,7 @@ async def game_reset_reminder(bot, today):
         try:
             await DB.backup()
         except Exception as error:
-            print("task error, " + str(error))
+            log("task error, " + str(error))
 
 
 # morning reminder:
@@ -191,7 +191,7 @@ def create_a_task(timer):
     @tasks.loop(hours=timer["hours"], minutes=timer["minutes"], seconds=timer["seconds"], count=2)
     async def task_template(event_info):
         if task_template.current_loop != 0:
-            print(f"Task executed! {event_info} {datetime.now()}")
+            log(f"Task executed! {event_info} {datetime.now()}")
         else:
             task_template.__name__ = f"task_{event_info['id']}"
 

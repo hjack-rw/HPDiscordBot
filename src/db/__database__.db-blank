@@ -28,7 +28,7 @@ CREATE TABLE "extra_variables" (
 CREATE TABLE "images" (
 	"filename"	TEXT NOT NULL UNIQUE,
 	"message_id"	INTEGER DEFAULT NULL,
-	"data"	BLOB,
+	"folder"	TEXT NOT NULL,
 	PRIMARY KEY("filename")
 );
 CREATE TABLE "portkeys" (

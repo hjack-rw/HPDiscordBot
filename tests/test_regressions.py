@@ -3,6 +3,8 @@ Regression tests for bugs discovered while building this test suite (2026-08-22)
 to the WHERE-clause parameterization work in tests/test_db_engine.py. Each docstring explains
 what was broken so the fix's intent stays legible even after the bug itself is history.
 """
+import os
+
 import pytest
 
 from src.db import Experience, ExperienceInfo, Images
@@ -11,10 +13,12 @@ from src.db.engine.validators import sql_create_linked_record
 
 @pytest.mark.asyncio
 async def test_images_add_replace_true(db):
-    """get_update_clause's type(old_value) != type(value) check used to always fail for BLOB
-    columns (old_value comes back as BytesIO, a fresh value is bytes); even past that, BytesIO
-    isn't a bindable sqlite3 parameter type at all - so the 'overwrite image?' flow always
-    crashed after confirming."""
+    """Originally: get_update_clause's type(old_value) != type(value) check always failed for
+    BLOB columns (old_value comes back as BytesIO, a fresh value is bytes), and BytesIO isn't a
+    bindable sqlite3 parameter anyway - so the 'overwrite image?' flow always crashed after
+    confirming. Images has since moved to filesystem-backed storage (metadata-only DB row,
+    bytes on disk), which sidesteps that bug class entirely - replace=True now just overwrites
+    the file and never touches _update. Kept as a behavioral check that overwrite still works."""
 
     images = await Images.initialize()
     await images.add("apple.png", b"orig-bytes")
@@ -22,9 +26,9 @@ async def test_images_add_replace_true(db):
     images = await Images.initialize()
     await images.add("apple.png", b"replaced-bytes", replace=True)
 
-    images = await Images.initialize()
-    stored = next(iter(images._get_values_from_raw_data(images.raw_data, add_id=True)))
-    assert stored["data"].read() == b"replaced-bytes"
+    stored_path = os.path.join(Images.database_path, "images", "misc", "apple.png")
+    with open(stored_path, "rb") as file:
+        assert file.read() == b"replaced-bytes"
 
 
 @pytest.mark.asyncio

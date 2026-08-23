@@ -11,6 +11,10 @@ load_dotenv(dotenv_path=Path(path + "env"))
 
 absolute_path = path
 
+image_data_path = os.getcwd() + "/data/images/"
+font_data_path  = os.getcwd() + "/data/fonts/"
+log_path        = os.getcwd() + "/data/bot.log"
+
 discord_token = os.getenv("DISCORD_TOKEN")
 bot_token     = os.getenv("DISCORD_BOT_TOKEN")
 
@@ -23,6 +27,12 @@ except ImportError:
                 "test_command": False,
                 "test_events":  False,
                 "test_tasks":   False,}
+
+# test_bot itself may come from pre_init.py (a plain dict, out of our control) instead of the
+# fallback above - a function reading it fresh works regardless of which branch populated it,
+# unlike a dict subclass with a property, which pre_init's own plain dict would silently drop
+def is_test_mode():
+    return any(test_bot.values())
 
 ############################################################################################################
 

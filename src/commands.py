@@ -2,19 +2,22 @@ import src.variables as vars
 
 from src.body       import bot
 from src.db         import *
-from src.functions  import CustomHousecup, create_leaderboard, draw_infocard, get_avatar, get_file, print_portkey, send_webhook, standard_response
+from src.functions  import compress_image, CustomHousecup, create_leaderboard, draw_infocard, get_avatar, get_file, log, print_portkey, safe_handle_response, send_webhook, standard_response
 from src.tasks      import print_notification
 from src.views      import *
 
 from datetime   import datetime, timedelta
 from itertools  import chain
+from os         import path, walk
 from statistics import mean, stdev
 from typing     import Literal, Optional
+from zipfile    import ZipFile, ZIP_DEFLATED
 
-from discord.app_commands import checks, Group, command
+from discord.app_commands import checks, CheckFailure, Group, command
 from discord.components   import SelectOption
 from discord.embeds       import Embed
 from discord.errors       import NotFound
+from discord.file         import File
 from discord.interactions import Interaction
 from discord.member       import Member
 from discord.message      import Message
@@ -28,6 +31,20 @@ if vars.test_bot["test_command"]:
     channel_ids = vars.channel_ids_test
 else:
     channel_ids = vars.channel_ids
+
+
+# Tree-wide error handling
+############################################################################################################
+
+# A check failure (e.g. missing admin permission) is raised by discord.py's dispatch before
+# the command body ever runs, so standard_response's try/except never sees it - without this,
+# the user just gets Discord's generic "This interaction failed" with no explanation.
+@bot.tree.error
+async def on_app_command_error(interaction:Interaction, error):
+    if isinstance(error, CheckFailure):
+        await safe_handle_response(interaction, message="You don't have permission to use this!")
+    else:
+        await safe_handle_response(interaction, message=f"Something went very wrong here... {error}!")
 
 
 # Admin only
@@ -44,7 +61,7 @@ class AdminCommands(Group):
         ''' Backup the Database manually '''
 
         DB = bot.db
-        DB.backup()
+        await DB.backup()
 
         await interaction.response.send_message("The Database was **backed up**!", ephemeral=True)
 
@@ -70,6 +87,30 @@ class AdminCommands(Group):
         get_file(url, filename="__database__.db-dump", directory=Database.database_path)
 
         await interaction.response.send_message("The Database was **downloaded**!", ephemeral=True)
+
+    @command(name="export_backup")
+    @standard_response()
+    async def export_backup(self, interaction:Interaction):
+        ''' Get the Database dump and a zip of all stored Images as attachments '''
+
+        DB = bot.db
+        await DB.backup()
+
+        dump_path    = path.join(Database.database_path, f"{Database.database_name}-dump")
+        images_dir   = path.join(Database.database_path, "images")
+        archive_path = path.join(Database.database_path, "images.zip")
+
+        with ZipFile(archive_path, "w", ZIP_DEFLATED) as archive:
+            for directory, _, filenames in walk(images_dir):
+                for filename in filenames:
+                    file_path = path.join(directory, filename)
+                    archive.write(file_path, arcname=path.relpath(file_path, images_dir))
+
+        await interaction.response.send_message(
+            "Here's the **Database dump** and **Image archive**:",
+            files=[File(dump_path), File(archive_path)],
+            ephemeral=True,
+        )
 
     ############################################################################################################
 
@@ -275,7 +316,7 @@ class AdminCommands(Group):
                 
                 scoreboard = {house.name:house.for_scoreboard(mn, sd) for house in custom_housecup}
 
-                print(scoreboard)
+                log(str(scoreboard))
                 winning_house = max(custom_housecup, key=lambda house: scoreboard.get(house.name, float('-inf'))).name
                 
                 custom_housecup_embed = custom_housecup_message.embeds[0]
@@ -364,6 +405,44 @@ class AdminCommands(Group):
 
 
 bot.tree.add_command(AdminCommands())
+
+# Context-menu commands can't be Group members (app_commands.Group only supports
+# .command()/.error()) - kept admin-only via its own check, grouped here by proximity instead.
+@bot.tree.context_menu(name="Add Image")
+@checks.has_permissions(administrator=True)
+@standard_response(silent=True)
+async def add_image(interaction:Interaction, message:Message):
+    ''' Add Image to DB '''
+
+    if not (filename := message.content.strip()):
+        raise Exception("the Filename was not provided")
+
+    if len(message.attachments) == 1:
+        image = compress_image(await message.attachments[0].read())
+    elif len(message.attachments) <1:
+        raise Exception("no Image is attached")
+    else:
+        raise Exception("multiple Images are attached. Leave only one to save")
+
+    images = await Images.initialize()
+    try:
+        await images.add(filename, image)
+
+    # except it is already in the Database, ask if to overwrite
+    except IdAlreadyExistsError:
+        view = YesNoView()
+        await interaction.response.send_message("The Filename already exists.\nAre you sure you wanna overwrite the Image?", view=view, ephemeral=True)
+        await view.wait()
+
+        if view.trigger:
+            await images.add(filename, image, replace=True)
+            return await interaction.followup.send("The Image has been **changed**!", ephemeral=True)
+        else:
+            return await interaction.followup.send("No action taken!", ephemeral=True)
+
+    await interaction.response.send_message("The Image has been **added**!", ephemeral=True)
+
+############################################################################################################
 
 # All users commands
 ############################################################################################################
@@ -530,42 +609,6 @@ class GeneralCommands(Group):
 bot.tree.add_command(GeneralCommands())
 
 # Standalone commands
-############################################################################################################
-
-# Image saving
-@bot.tree.context_menu(name="Add Image")
-@standard_response(silent=True)
-async def add_image(interaction:Interaction, message:Message):
-    ''' Add Image to DB '''
-    
-    if not (filename := message.content.strip()):
-        raise Exception("the Filename was not provided")
-    
-    if len(message.attachments) == 1:
-        image = await message.attachments[0].read()
-    elif len(message.attachments) <1:
-        raise Exception("no Image is attached")
-    else:
-        raise Exception("multiple Images are attached. Leave only one to save")
-
-    images = await Images.initialize()
-    try:
-        await images.add(filename, image)
-    
-    # except it is already in the Database, ask if to overwrite
-    except IdAlreadyExistsError:
-        view = YesNoView()
-        await interaction.response.send_message("The Filename already exists.\nAre you sure you wanna overwrite the Image?", view=view, ephemeral=True)
-        await view.wait()
-
-        if view.trigger:
-            await images.add(filename, image, replace=True)
-            return await interaction.followup.send("The Image has been **changed**!", ephemeral=True)
-        else:
-            return await interaction.followup.send("No action taken!", ephemeral=True)
-            
-    await interaction.response.send_message("The Image has been **added**!", ephemeral=True)
-
 ############################################################################################################
 
 # Portkey handling additional functionality

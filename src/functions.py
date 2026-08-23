@@ -1,13 +1,16 @@
 import src.variables as vars
 
+import asyncio
+
 from copy      import deepcopy
 from csv       import DictReader
 from datetime  import datetime, timedelta
 from functools import reduce, wraps
 from io        import BytesIO, StringIO
-from os        import getcwd, path
+from os        import getcwd, makedirs, path
 from PIL       import Image, ImageDraw, ImageFilter, ImageFont, UnidentifiedImageError
 from re        import search, sub
+from shutil    import copy2
 from time      import mktime, sleep
 from types     import SimpleNamespace
 
@@ -34,6 +37,18 @@ R =   TypeVar("R") # returns
 # vars.test_bot["test_command"] = True # overwrite if needed
 # vars.test_bot["test_events"]  = True # overwrite if needed
 # vars.test_bot["test_tasks"]   = True # overwrite if needed
+
+
+def log(message):
+    ''' print()-alike: prints while any test_bot flag is set (local dev), otherwise appends
+    a timestamped line to data/bot.log - a real deployment has no console to watch. '''
+
+    if vars.is_test_mode():
+        print(message)
+    else:
+        makedirs(path.dirname(vars.log_path), exist_ok=True)
+        with open(vars.log_path, "a", encoding="utf-8") as file:
+            file.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M')} {message}\n")
 
 
 delete_after = {"hours":0, "minutes":0, "seconds":0}
@@ -104,9 +119,9 @@ def standard_response(silent: bool=False):
                     elif message:
                         return await message.channel.send(error_text, delete_after=10)
                 except Exception as followup_error:
-                    print(f"Failed to send error follow-up: {followup_error}")
-                
-                print(error_text)
+                    log(f"Failed to send error follow-up: {followup_error}")
+
+                log(error_text)
         
         return response
     return run
@@ -148,7 +163,7 @@ async def wait_till_posted(channel, idx):
         if test:
             break
     
-    print("endless loop finished!")
+    log("endless loop finished!")
 
 
 async def send_command(target_channel_id, app_id, version, id, command, options=[]):
@@ -172,15 +187,17 @@ async def send_command(target_channel_id, app_id, version, id, command, options=
         raise Exception("failed to send command!")
 
 
+# the one shared webhook gets repointed to a channel right before every send/edit - without
+# a lock, two concurrent calls for different channels can interleave their repoint+send, so
+# a message lands in the wrong channel under the wrong persona
+webhook_lock = asyncio.Lock()
+
 def change_webhook_channel(target_channel):
     payload = {"channel_id":target_channel.id}
     return session.patch(f"https://discordapp.com/api/webhooks/{vars.webhook_id}", json=payload, headers=headers,)
 
 
-async def send_webhook(target_channel, user_name, user_avatar_url=None, content="", embed=None, file=None, view=None):            
-
-    response = change_webhook_channel(target_channel)
-    #print(response)
+async def send_webhook(target_channel, user_name, user_avatar_url=None, content="", embed=None, file=None, view=None):
 
     if user_avatar_url is None:
         try:
@@ -188,34 +205,39 @@ async def send_webhook(target_channel, user_name, user_avatar_url=None, content=
         except KeyError:
             user_avatar_url = vars.custom_avatars["Prof. Dumbledore"]
 
-    if response.status_code == 200:
-        webhook = [webhook for webhook in await target_channel.webhooks() if webhook.id == vars.webhook_id][0]
-        
-        embed = embed if embed else MISSING
-        file = file if file else MISSING
-        view = view if view else MISSING
+    async with webhook_lock:
+        response = await asyncio.to_thread(change_webhook_channel, target_channel)
+        #print(response)
 
-        return await webhook.send(content=content, username=user_name, avatar_url=user_avatar_url, embed=embed, file=file, view=view, wait=True)
-    else:
-        raise Exception("failed to create webhook")
+        if response.status_code == 200:
+            webhook = [webhook for webhook in await target_channel.webhooks() if webhook.id == vars.webhook_id][0]
+
+            embed = embed if embed else MISSING
+            file = file if file else MISSING
+            view = view if view else MISSING
+
+            return await webhook.send(content=content, username=user_name, avatar_url=user_avatar_url, embed=embed, file=file, view=view, wait=True)
+        else:
+            raise Exception("failed to create webhook")
 
 
 async def edit_webhook(target_channel, message_id, embed=None, file=None):
-    
-    response = change_webhook_channel(target_channel)
-    #print(response)
 
-    webhook = [webhook for webhook in await target_channel.webhooks() if webhook.id == vars.webhook_id][0]
+    async with webhook_lock:
+        response = await asyncio.to_thread(change_webhook_channel, target_channel)
+        #print(response)
 
-    embeds, attachments = [], []
-    
-    if embed:
-        embeds = [embed]
+        webhook = [webhook for webhook in await target_channel.webhooks() if webhook.id == vars.webhook_id][0]
 
-    if file:
-        attachments = [file]
-    
-    await webhook.edit_message(message_id=message_id, embeds=embeds, attachments=attachments)
+        embeds, attachments = [], []
+
+        if embed:
+            embeds = [embed]
+
+        if file:
+            attachments = [file]
+
+        await webhook.edit_message(message_id=message_id, embeds=embeds, attachments=attachments)
 
 
 ############################################################################################################
@@ -280,7 +302,14 @@ def get_today():
 
             kwargs['today'] = datetime.now(tz=vars.time_trigger[time_key].tzinfo)
 
-            return await func(*args, **kwargs)
+            # discord.ext.tasks.loop silently stops looping forever if an unhandled
+            # exception escapes the loop body - every _reminder task shares this wrapper,
+            # so catching here (rather than in each task individually) keeps every
+            # scheduled reminder alive even if one run of it fails.
+            try:
+                return await func(*args, **kwargs)
+            except Exception as error:
+                log(f"task error in '{func_name}': {error}")
         return insert_today
     return run
 
@@ -336,7 +365,17 @@ def get_file(url, filename, directory=None):
         raise Exception("no file found")
 
 
+def compress_image(image_bytes):
+    ''' Re-encode raw image bytes as a lossless-optimized PNG, regardless of source format '''
+
+    img = Image.open(BytesIO(image_bytes))
+    output = BytesIO()
+    img.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
 def get_image(url, delay=2, max_retries=10):
+    attempts = 0
     while True:
         try:
             response = session.get(url, timeout=10)
@@ -344,13 +383,13 @@ def get_image(url, delay=2, max_retries=10):
             return response.content
         except requests.exceptions.RequestException as error:
             attempts += 1
-            print(f"Error: failed to download image from {url}: {error}")
+            log(f"Error: failed to download image from {url}: {error}")
 
             if attempts < max_retries:
-                print(f"Retrying in {delay} seconds...")
+                log(f"Retrying in {delay} seconds...")
                 sleep(delay)
             else:
-                print(f"Failed to download image after {max_retries} attempts.")
+                log(f"Failed to download image after {max_retries} attempts.")
                 return None
 
 async def get_image_from_channel(channel, message_id):
@@ -438,14 +477,14 @@ def get_member_id_by_nick(server, nick):
 def get_leaderboard_static():
     
     # the basic template
-    background = Image.open(vars.absolute_path + "image_module/leaderboard_template.png")
+    background = Image.open(vars.image_data_path + "leaderboard/template.png")
 
     # the profile border
-    profile_border = Image.open(vars.absolute_path + "image_module/leaderboard_frogcard_template.png")
-    
+    profile_border = Image.open(vars.image_data_path + "leaderboard/frogcard_template.png")
+
     # the full progress bar
-    full_bar = Image.open(vars.absolute_path + f"image_module/leaderboard_bar.png")
-    
+    full_bar = Image.open(vars.image_data_path + "leaderboard/bar.png")
+
     # the mask for the begining of the bar
     bar_mask = Image.new(mode="L", size=full_bar.size, color=255)
     draw = ImageDraw.Draw(bar_mask)
@@ -453,15 +492,15 @@ def get_leaderboard_static():
     draw.polygon(check_shape(shape=[(0, 0), (0, y), (91, y), (91, 0)]), fill=0)
 
     # the progress bar marker
-    marker = Image.open(vars.absolute_path + f"image_module/leaderboard_bar_frog.png")
+    marker = Image.open(vars.image_data_path + "leaderboard/bar_frog.png")
 
     # the fonts
-    fonts = {"MAGIC_88": ImageFont.truetype(font=(vars.absolute_path + "image_module/MAGIC.ttf"), size=88),
-             "MAGIC_45": ImageFont.truetype(font=(vars.absolute_path + "image_module/MAGIC.ttf"), size=45),
-             "MAGIC_42": ImageFont.truetype(font=(vars.absolute_path + "image_module/MAGIC.ttf"), size=42),
-             "MAGIC_35": ImageFont.truetype(font=(vars.absolute_path + "image_module/MAGIC.ttf"), size=35),
-             "RUNES_88": ImageFont.truetype(font=(vars.absolute_path + "image_module/RUNES.ttf"), size=88),
-             "RUNES_72": ImageFont.truetype(font=(vars.absolute_path + "image_module/RUNES.ttf"), size=72),}
+    fonts = {"MAGIC_88": ImageFont.truetype(font=(vars.font_data_path + "MAGIC.ttf"), size=88),
+             "MAGIC_45": ImageFont.truetype(font=(vars.font_data_path + "MAGIC.ttf"), size=45),
+             "MAGIC_42": ImageFont.truetype(font=(vars.font_data_path + "MAGIC.ttf"), size=42),
+             "MAGIC_35": ImageFont.truetype(font=(vars.font_data_path + "MAGIC.ttf"), size=35),
+             "RUNES_88": ImageFont.truetype(font=(vars.font_data_path + "RUNES.ttf"), size=88),
+             "RUNES_72": ImageFont.truetype(font=(vars.font_data_path + "RUNES.ttf"), size=72),}
     
     return (background, profile_border, full_bar, bar_mask, marker, fonts)
 
@@ -491,7 +530,7 @@ def get_position(center, image_center, offset=(0,0)):
 ############################################################################################################
 
 def draw_infocard(new_user, all_members_count):
-    background = Image.open(vars.absolute_path + "image_module/card_template.png")
+    background = Image.open(vars.image_data_path + "card/template.png")
     
     ## profile picture ##
     url = get_avatar(user=new_user)
@@ -518,9 +557,9 @@ def draw_infocard(new_user, all_members_count):
     ## text ##
     # add nickname
     if len(new_user.name) > 15:
-        name_font = ImageFont.truetype(font=(vars.absolute_path + "image_module/RUNES.ttf"), size=80)
+        name_font = ImageFont.truetype(font=(vars.font_data_path + "RUNES.ttf"), size=80)
     else:
-        name_font = ImageFont.truetype(font=(vars.absolute_path + "image_module/RUNES.ttf"), size=100)
+        name_font = ImageFont.truetype(font=(vars.font_data_path + "RUNES.ttf"), size=100)
 
     if len(new_user.name) > 9:
         draw.text(xy=(995,115), text=new_user.name, fill=(235,235,235), font=name_font, align="center", anchor='rm')
@@ -528,7 +567,7 @@ def draw_infocard(new_user, all_members_count):
         draw.text(xy=(795,115), text=new_user.name, fill=(235,235,235), font=name_font, align="center", anchor='mm')
     
     # add footer
-    footer_font = ImageFont.truetype(font=(vars.absolute_path + "image_module/MAGIC.ttf"), size=35)
+    footer_font = ImageFont.truetype(font=(vars.font_data_path + "MAGIC.ttf"), size=35)
     draw.text(xy=(790,200), text=f"We are now {all_members_count} members!", fill=(235,235,235), font=footer_font, align="center", anchor='mm')
 
     
@@ -562,7 +601,7 @@ def draw_leaderboard(user, rank, house, static, is_bytes=False):
             # scaling
             avatar = scale_image(base_width=xy[0], image=image)
         except (OSError, UnidentifiedImageError, TypeError) as error:
-            print(f"PIL error: failed to load image for {user.get('username')}:\n{error}")
+            log(f"PIL error: failed to load image for {user.get('username')}:\n{error}")
 
     # black avatar if missing
     if avatar is None:
@@ -599,7 +638,7 @@ def draw_leaderboard(user, rank, house, static, is_bytes=False):
 
     # add house logo
     if house:
-        house_logo = Image.open(vars.absolute_path + f"image_module/houses/{house}.png")
+        house_logo = Image.open(vars.image_data_path + f"houses/{house}.png")
         background.alpha_composite(im=house_logo, dest=(388, 194))
 
     # progress details (pet name and level)    
@@ -949,7 +988,7 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
         
         duration = f"~{event_duration[0]} hour{'s' if event_duration[0] > 1 else ''}"
     
-    print("h:", delete_after["hours"], " m:", delete_after["minutes"], " s:", delete_after["seconds"])
+    log(f"h: {delete_after['hours']}  m: {delete_after['minutes']}  s: {delete_after['seconds']}")
 
     # get alternative title and insert timer
     if not event_info["title"]:
@@ -987,11 +1026,11 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
                                                 entity_type=EntityType.external,
                                                 image=get_image(url=await get_image_from_channel(channel, message_id=event_info["image_id"])))
         except DiscordServerError:
-            print("Could not create event... Discord API error!")
+            log("Could not create event... Discord API error!")
         except CommandInvokeError:
-            print("Could not create event... Bad timestamp!")
+            log("Could not create event... Bad timestamp!")
         except ValueError:
-            print("Could not create event... Image not found!")
+            log("Could not create event... Image not found!")
     
     
     # create notification message
@@ -1017,7 +1056,7 @@ async def print_notification(server, event_name, date=None, variables=[], is_tas
 
     if vars.test_bot["test_tasks"] and is_task:
         events_short = vars.notification_dict(is_short=True)
-        print(f'''"{events_short[event_name]}" task running... {datetime.now()}!''')
+        log(f'''"{events_short[event_name]}" task running... {datetime.now()}!''')
     elif not is_task:
         if date and task_name:
             date = date.astimezone(tz=vars.time_trigger[task_name].tzinfo)

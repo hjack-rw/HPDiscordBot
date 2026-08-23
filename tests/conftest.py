@@ -20,7 +20,7 @@ async def db(tmp_path, monkeypatch):
 
     Only database_path (where the live .db file lives) is redirected to a tmp dir;
     database_name/schema_seed_path stay as-is so restore(clear=True) reads the real,
-    read-only seed at src/db/models/__database__.db-blank - no copying needed."""
+    read-only seed at src/db/__database__.db-blank - no copying needed."""
 
     from src.db import Database
 

@@ -26,6 +26,7 @@ A Harry Potter themed Discord bot for community servers. Built with discord.py, 
 
 ### Admin Tooling
 - DB backup / restore / remote download
+- Export DB dump + image archive as Discord attachments
 - Webhook impersonation (Polyjuice Potion command)
 - Optional manual notification trigger
 - Maintenance scheduling
@@ -61,28 +62,23 @@ src/
 ├── views.py         # Discord UI components (dropdowns, buttons)
 ├── db/              # Database layer
 │   ├── engine/         # query engine: Database base class, validators, clause-builders
-│   └── models/         # one file per table (experience, portkeys, images, welcome_messages, extra_variables)
-├── functions.py     # Image generation, leaderboard, webhooks
-└── image_module/    # Fonts only (image assets provided separately — see below)
+│   ├── models/         # one file per table (experience, portkeys, images, welcome_messages, extra_variables)
+│   └── __database__.db-blank  # checked-in blank schema seed
+└── functions.py     # Image generation, leaderboard, webhooks
 
-data/                # Runtime database (gitignored) + schema seed lives in src/db/models/
+data/                # Runtime state (gitignored, except data/fonts/ — see below)
+├── fonts/             # MAGIC.ttf, RUNES.ttf — tracked in git (open-licensed, needed to render anything)
+└── images/            # Template art (card/, houses/, leaderboard/) + admin-uploaded pet images — see below
 ```
 
 ## Assets & disclaimer
 
 This is a **non-commercial, fan-made** project. It is not affiliated with, endorsed, sponsored, or approved by Warner Bros., J.K. Rowling, or any rights holder. "Harry Potter" and all related names and marks are trademarks of their respective owners, used here only descriptively in a non-commercial context.
 
-**Image assets are blank placeholders.** To avoid redistributing themed artwork, the repo ships empty, correctly-sized transparent PNGs instead of art — the bot runs out-of-box, and you replace them with your own. Files in `src/image_module/`:
+**Image assets are supplied out-of-band, not shipped in the repo.** The database only stores filename pointers — the actual image bytes live under `data/images/`, which is gitignored end-to-end (never `git add`-able, even by accident). Supply your own artwork there before first run.
 
-| File | Size |
-| --- | --- |
-| `card_template.png` | 1024×266 |
-| `leaderboard_template.png` | 1600×400 |
-| `leaderboard_bar.png` | 1600×400 |
-| `leaderboard_frogcard_template.png` | 246×246 |
-| `leaderboard_bar_frog.png` | 55×55 |
-| `houses/gryffindor.png` · `hufflepuff.png` · `ravenclaw.png` · `slytherin.png` | 45×56 |
+Pet images added via the "Add Image" admin command are stored the same way — auto-sorted under `data/images/<category>/` by the `<category>__<name>` prefix in the filename you give them.
 
-Fonts **are** included and freely licensed:
-- `RUNES.ttf` — [MedievalSharp](https://fonts.google.com/specimen/MedievalSharp), SIL Open Font License (see `image_module/OFL-MedievalSharp.txt`)
+Fonts **are** included and freely licensed, tracked in git under `data/fonts/` (the one exception carved out of the otherwise-gitignored `data/` tree, since they're needed to render anything at all):
+- `RUNES.ttf` — [MedievalSharp](https://fonts.google.com/specimen/MedievalSharp), SIL Open Font License (see `data/fonts/OFL-MedievalSharp.txt`)
 - `MAGIC.ttf` — Magic School One (FontMesa), free for personal and commercial use

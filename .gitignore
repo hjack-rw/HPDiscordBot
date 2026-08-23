@@ -1,12 +1,25 @@
+# Local/host-only files (never committed, live only on the deploying machine)
 .gitignore
-.system_variables
 pre_init.py
 test.py
+
+# Python artifacts
 __pycache__/
-test_images/
+src/__pycache__
+
+# Runtime database
 data/__database__.db
 data/__database__.db-dump
 data/__database__.db-journal
-src/__pycache__
+
+# Logs
+data/bot.log
+
+# User-supplied assets (fonts are tracked, everything else here is not)
+data/images/*
+data/images.zip
+test_images/
+
+# Env / tooling
 src/env
 .claude/
