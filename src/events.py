@@ -6,7 +6,7 @@ from src.views      import WelcomeView
 
 import traceback
 
-from asyncio  import get_event_loop
+from asyncio  import get_event_loop, to_thread
 from datetime import datetime
 from random   import randint
 
@@ -30,7 +30,9 @@ async def on_member_join(member):
         # a failure anywhere in the welcome notification (image render, Discord API hiccup)
         # must not prevent the members list below from staying in sync - independent steps
         try:
-            image = draw_infocard(new_user=member, all_members_count=len([member for member in SERVER.members if not member.bot]))
+            # draw_infocard uses PIL + a blocking image download (up to ~20s on retries) -
+            # off the event loop, or one broken avatar stalls the whole bot
+            image = await to_thread(draw_infocard, new_user=member, all_members_count=len([member for member in SERVER.members if not member.bot]))
             view = WelcomeView(user=member, stickers=SERVER.stickers)
 
             message = await print_notification(SERVER, event_name="Welcome", variables=[member, image, view])

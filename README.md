@@ -53,6 +53,15 @@ Copy `server_config.example.toml` to `server_config.toml` at the repo root and f
 python main.py
 ```
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Covers the DB engine (real SQLite, no mocks), the pure-logic pieces of `functions/`, and its Discord-/render-dependent pieces (Discord objects faked, image rendering runs for real against the local template assets).
+
 ## Architecture
 
 ```
@@ -66,20 +75,26 @@ src/
 │   ├── engine/         # query engine: Database base class, validators, clause-builders
 │   ├── models/         # one file per table (experience, portkeys, images, welcome_messages, extra_variables)
 │   └── __database__.db-blank  # checked-in blank schema seed
-└── functions.py     # Image generation, leaderboard, webhooks
+└── functions/        # Image generation, leaderboard, webhooks, notifications - split by responsibility
 
 data/                # Runtime state (gitignored, except data/fonts/ — see below)
 ├── fonts/             # MAGIC.ttf, RUNES.ttf — tracked in git (open-licensed, needed to render anything)
-└── images/            # Template art (card/, houses/, leaderboard/) + admin-uploaded pet images — see below
+└── images/            # pets/, houses/, events/, leaderboard/, card/ (fixed, code-defined catalogs) + admin-uploaded images — see below
+
+tests/               # pytest suite
 ```
 
 ## Assets & disclaimer
 
 This is a **non-commercial, fan-made** project. It is not affiliated with, endorsed, sponsored, or approved by Warner Bros., J.K. Rowling, or any rights holder. "Harry Potter" and all related names and marks are trademarks of their respective owners, used here only descriptively in a non-commercial context.
 
-**Image assets are supplied out-of-band, not shipped in the repo.** The database only stores filename pointers — the actual image bytes live under `data/images/`, which is gitignored end-to-end (never `git add`-able, even by accident). Supply your own artwork there before first run.
+**Image assets are supplied out-of-band, not shipped in the repo.** All of `data/images/` is gitignored end-to-end (never `git add`-able, even by accident). Supply your own artwork there before first run.
 
-Pet images added via the "Add Image" admin command are stored the same way — auto-sorted under `data/images/<category>/` by the `<category>__<name>` prefix in the filename you give them.
+Three separate mechanisms populate it:
+
+- **Fixed, code-defined catalogs** (pets, house crests, event banners, leaderboard/card templates) — drop a file straight into the matching `data/images/<pets|houses|events|leaderboard|card>/` subfolder. Each pet/house/event references its file by an independent `image` slug in `variables.py` (not derived from its display name), so renaming a display name never breaks the file lookup. No database involved.
+- **Admin-uploaded images** — the "Add Image" context-menu command, for anything outside the fixed catalogs. The database stores only a filename pointer; the bytes are auto-sorted under `data/images/<category>/` by the `<category>__<name>` prefix in the filename you give them.
+- **Webhook-impersonation avatars** (Prof. Snape, Prof. McGonagall, etc.) — posted once as attachments in the private `#assets` channel; `server_config.toml`'s `[custom_avatars]` maps each persona to that message's ID. Discord's CDN URLs are signed and expire (~24h), so nothing here can be a hardcoded link — the bot re-fetches the message for a fresh URL on send, cached briefly.
 
 Fonts **are** included and freely licensed, tracked in git under `data/fonts/` (the one exception carved out of the otherwise-gitignored `data/` tree, since they're needed to render anything at all):
 - `RUNES.ttf` — [MedievalSharp](https://fonts.google.com/specimen/MedievalSharp), SIL Open Font License (see `data/fonts/OFL-MedievalSharp.txt`)

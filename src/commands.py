@@ -6,6 +6,7 @@ from src.functions  import compress_image, CustomHousecup, create_leaderboard, d
 from src.tasks      import print_notification
 from src.views      import *
 
+from asyncio    import to_thread
 from datetime   import datetime, timedelta
 from itertools  import chain
 from os         import path, walk
@@ -204,7 +205,9 @@ class AdminCommands(Group):
                 return await interaction.followup.send(f"{event} notifications require to select a Member!", ephemeral=True)
             else:
                 if event == "Welcome":
-                    image = draw_infocard(new_user=member, all_members_count=len([member for member in SERVER.members if not member.bot]))
+                    # draw_infocard uses PIL + a blocking image download (up to ~20s on
+                    # retries) - off the event loop, or one broken avatar stalls the whole bot
+                    image = await to_thread(draw_infocard, new_user=member, all_members_count=len([member for member in SERVER.members if not member.bot]))
                     view = WelcomeView(user=member, stickers=SERVER.stickers)
                     
                     variables += [member, image, view]
@@ -293,7 +296,10 @@ class AdminCommands(Group):
                 custom_housecup_message = await CHANNEL.send(content="", embed=Embed(title="The leading house is... ", color=vars.system_embed_color))
                 custom_housecup = [CustomHousecup(house=role.name, all_members_count=len(role.members)) for role in SERVER.roles if role.name in set(vars.houses_names_list())]
             
-            leaderboard, custom_housecup = create_leaderboard(SERVER, data, custom_housecup)
+            # create_leaderboard draws one card per user via PIL + a blocking avatar download
+            # per user (up to ~20s each on retries) - off the event loop, or a handful of
+            # broken avatars stalls the whole bot for minutes
+            leaderboard, custom_housecup = await to_thread(create_leaderboard, SERVER, data, custom_housecup)
 
             # post leaderboard
             for position in leaderboard:
