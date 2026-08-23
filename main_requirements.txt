@@ -1,0 +1,6 @@
+discord.py
+pillow
+pip-system-certs
+python-dotenv
+tzdata
+requests
