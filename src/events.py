@@ -27,11 +27,9 @@ async def on_member_join(member):
     if not member.bot:
         SERVER = bot.server
 
-        # a failure anywhere in the welcome notification (image render, Discord API hiccup)
-        # must not prevent the members list below from staying in sync - independent steps
+        # welcome notification failure must not block the members list below - see memory
         try:
-            # draw_infocard uses PIL + a blocking image download (up to ~20s on retries) -
-            # off the event loop, or one broken avatar stalls the whole bot
+            # off the event loop - draw_infocard blocks on PIL + an avatar download
             image = await to_thread(draw_infocard, new_user=member, all_members_count=len([member for member in SERVER.members if not member.bot]))
             view = WelcomeView(user=member, stickers=SERVER.stickers)
 
@@ -40,12 +38,12 @@ async def on_member_join(member):
             if not test_bot["test_events"]:
                 await (await WelcomeMessages.initialize()).add(user_id=member.id, message_id=message.id, date=datetime.now())
         except Exception as error:
-            log(f"on_member_join welcome notification failed for {member}: {error}")
+            log(f"welcome notification failed for {member}: {error}")
 
         try:
             await MEMBERS_VIEW.update_members(members=SERVER.members)
         except Exception as error:
-            log(f"on_member_join update_members failed for {member}: {error}")
+            log(f"update_members failed for {member}: {error}")
 
     else:
         log(f"BOT: {member.name} joined the server!")
@@ -61,7 +59,7 @@ async def on_member_remove(member):
     try:
         await MEMBERS_VIEW.update_members(members=SERVER.members)
     except Exception as error:
-        log(f"on_member_remove update_members failed for {member}: {error}")
+        log(f"update_members failed for {member}: {error}")
 
     if not test_bot["test_events"] and not member.bot:
 
@@ -72,7 +70,7 @@ async def on_member_remove(member):
                 message = await CHANNEL.fetch_message(message_id)
                 await message.delete()
         except Exception as error:
-            log(f"on_member_remove portkey cleanup failed for {member}: {error}")
+            log(f"portkey cleanup failed for {member}: {error}")
 
         try:
             CHANNEL = SERVER.get_channel(channel_ids["welcome"])
@@ -80,7 +78,7 @@ async def on_member_remove(member):
                 message = await CHANNEL.fetch_message(message_id)
                 await message.delete()
         except Exception as error:
-            log(f"on_member_remove welcome cleanup failed for {member}: {error}")
+            log(f"welcome cleanup failed for {member}: {error}")
 
         try:
             await USER_EXPERIENCE.archive(user_id=member.id)

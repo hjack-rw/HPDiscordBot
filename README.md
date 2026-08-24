@@ -25,11 +25,13 @@ A Harry Potter themed Discord bot for community servers. Built with discord.py, 
 - Portkey system — archive and post custom introductory messages
 
 ### Admin Tooling
-- DB backup / restore / remote download
-- Export DB dump + image archive as Discord attachments
+- DB backup / restore
+- Export the live DB, its dump, and an image archive as Discord attachments
+- Automatic hourly backup rotation to Dropbox, so an unplanned host restart doesn't lose data
 - Webhook impersonation (Polyjuice Potion command)
 - Optional manual notification trigger
 - Maintenance scheduling
+- Clear bot-downtime log spam from a channel
 
 ## Stack
 
@@ -41,11 +43,8 @@ Python · discord.py · SQLite · Pillow (image generation) · python-dotenv
 pip install -r requirements.txt
 ```
 
-Create `env` at the repo root:
-```
-DISCORD_TOKEN=your_token_here
-DISCORD_BOT_TOKEN=your_bot_token_here
-```
+Copy `env.example` to `env` at the repo root and fill in your bot token (everything else in
+it is optional).
 
 Copy `server_config.example.toml` to `server_config.toml` at the repo root and fill in your server's real IDs (bot ID, dev user ID, webhook ID, server ID, club name, and every channel/section ID the bot references). The bot won't start without it.
 
@@ -65,9 +64,12 @@ Covers the DB engine (real SQLite, no mocks), the pure-logic pieces of `function
 ## Architecture
 
 ```
+main.py              # Entrypoint - health-check listener, gitignored-asset fetch, then starts the bot
+
 src/
 ├── body.py          # Bot client setup
-├── commands.py      # Slash commands (admin + general)
+├── commands/         # Slash commands - admin.py (admin Group), admin_apps.py (admin-only
+│                     # context-menu "Apps"), user.py (everyone-facing Group)
 ├── events.py        # Event listeners
 ├── tasks.py         # Scheduled background tasks
 ├── views.py         # Discord UI components (dropdowns, buttons)
@@ -75,7 +77,8 @@ src/
 │   ├── engine/         # query engine: Database base class, validators, clause-builders
 │   ├── models/         # one file per table (experience, portkeys, images, welcome_messages, extra_variables)
 │   └── __database__.db-blank  # checked-in blank schema seed
-└── functions/        # Image generation, leaderboard, webhooks, notifications - split by responsibility
+└── functions/        # Image generation, leaderboard, webhooks, notifications, Dropbox
+                       # backups - split by responsibility
 
 data/                # Runtime state (gitignored, except data/fonts/ — see below)
 ├── fonts/             # MAGIC.ttf, RUNES.ttf — tracked in git (open-licensed, needed to render anything)

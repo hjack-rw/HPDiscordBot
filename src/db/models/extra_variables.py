@@ -1,4 +1,4 @@
-from src.db.engine import Database, permutation
+from src.db.engine import Database, permutation, RecordNotFoundError
 
 from copy import deepcopy
 
@@ -14,9 +14,15 @@ class ExtraVariable(Database):
         self.all_columns_init_validator = True
         self.one_row_init_validator     = True
 
+    def _raw_value(self):
+        row = next(iter(self._get_values_from_raw_data(self.raw_data)), None)
+        if row is None:
+            raise RecordNotFoundError(f"extra_variables table error: no matching row for {self.conditions} - is the blank schema seed missing it?")
+        return row["value"]
+
     # change the value of ExtraVariable
     async def change(self, to):
-        value = next(iter(self._get_values_from_raw_data(self.raw_data)))["value"]
+        value = self._raw_value()
 
         if type(value) == permutation:
             value = deepcopy(value)
@@ -27,7 +33,7 @@ class ExtraVariable(Database):
 
     # return ExtraVariable
     def get(self):
-        value = next(iter(self._get_values_from_raw_data(self.raw_data)))["value"]
+        value = self._raw_value()
         if type(value) == permutation:
             return value.instance
         return value

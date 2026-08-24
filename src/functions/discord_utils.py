@@ -61,9 +61,10 @@ def standard_response(silent: bool=False):
                     elif message:
                         return await message.channel.send(error_text, delete_after=10)
                 except Exception as followup_error:
-                    log(f"Failed to send error follow-up: {followup_error}")
+                    # response() wraps every @standard_response() command - see memory
+                    log(f"{func.__name__}: failed to send error follow-up: {followup_error}")
 
-                log(error_text)
+                log(f"{func.__name__}: {error_text}")
 
         return response
     return run
@@ -98,9 +99,7 @@ def disable_after(func):
     return decorator
 
 
-# the one shared webhook gets repointed to a channel right before every send/edit - without
-# a lock, two concurrent calls for different channels can interleave their repoint+send, so
-# a message lands in the wrong channel under the wrong persona
+# guards concurrent repoint+send races on the shared webhook - see memory
 webhook_lock = asyncio.Lock()
 
 def change_webhook_channel(target_channel):
@@ -108,9 +107,7 @@ def change_webhook_channel(target_channel):
     return session.patch(f"https://discordapp.com/api/webhooks/{vars.webhook_id}", json=payload, headers=headers,)
 
 
-# tracks which channel the shared webhook is currently pointed at - repointing is a real HTTP
-# round-trip, and back-to-back sends/edits to the same channel don't need to repeat it. Only
-# meaningful while held under webhook_lock (below), same as the webhook itself.
+# only meaningful while held under webhook_lock - see memory
 _webhook_channel_id = None
 
 async def _ensure_webhook_channel(target_channel):
@@ -137,16 +134,11 @@ def get_avatar(user, none=False):
 
 
 def slugify(name):
-    ''' shared with scripts/migrate_pet_images.py - both sides need identical slug logic
-    or a dropped-in filename won't match the name it's supposed to belong to '''
+    ''' shared with scripts/migrate_pet_images.py - slug logic must match on both sides '''
     return sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
-# webhook avatar_url must be a plain URL (no attachment:// support, unlike embeds) - Discord's
-# CDN attachment URLs are signed and expire (~24h), so a hardcoded one would just rot slower
-# than the original hotlinks. Instead custom_avatars maps name -> #assets message id, and this
-# re-fetches that message (Discord always hands back a freshly-signed URL) with a short cache
-# to avoid doing that on every single webhook send.
+# caches the re-fetched, freshly-signed avatar URL per #assets message - see memory
 avatar_url_cache = {} # message_id -> (url, fetched_at)
 AVATAR_CACHE_TTL = timedelta(hours=6)
 

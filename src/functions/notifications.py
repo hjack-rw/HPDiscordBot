@@ -77,8 +77,7 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
         event_info["location"] = "HP: Magic Awakened ឵឵(Sphinx)"
 
 
-    # get image - event banners are fixed, code-defined assets (data/images/events/),
-    # same convention as pets/houses: no #assets channel round-trip, no DB
+    # fixed, code-defined asset - see memory
     image_path = glob(path.join(vars.image_data_path, "events", f"{event_info['image']}.*"))
 
     if not vars.test_bot["test_tasks"]:
@@ -185,8 +184,7 @@ async def _notify_birthday(server, date, variables, same_day):
     birthday_user  = birthday_users[0]
     channel = server.get_channel(channel_ids["great-hall"])
 
-    # thumbnail is a fixed, code-defined asset (data/images/events/), same
-    # convention as pets/houses - not a third-party hotlink
+    # fixed, code-defined asset - see memory
     birthday_thumbnail = glob(path.join(vars.image_data_path, "events", "birthday.*"))[0]
     extra_files = [File(fp=birthday_thumbnail, filename="birthday.png")]
 
@@ -201,10 +199,7 @@ async def _notify_birthday(server, date, variables, same_day):
     return await _send_direct_notification(channel, event_info, None, extra_files, None)
 
 
-# the 3 weekly free-card reminders only differ by these 4 values - one data table plus one
-# handler instead of 3 near-identical copy-pasted functions. image/title/replacements stay
-# hardcoded (they're content, not per-deployment config); the message id each one deep-links
-# to is server-specific, so that comes from server_config.toml's [card_message_ids].
+# one data table + one handler for the 3 weekly card reminders - see memory
 CARD_VARIANTS = {"Card - Matagot":          {"card_message_key": "card_matagot", "image": "card_matagot", "title": "<Matagot! (rare)>",
                                               "replacements": ["Staircase", "\nMatagot", "next to the Transfiguration Classroom", "Hand it Over to Hagrid", "1 copy"]},
                   "Card - Book of Monsters":{"card_message_key": "card_book_of_monsters", "image": "card_book_of_monsters", "title": "<Book of Monsters! (rare)>",
@@ -214,10 +209,7 @@ CARD_VARIANTS = {"Card - Matagot":          {"card_message_key": "card_matagot",
 
 
 async def _notify_card(server, date, variables, same_day, *, card_message_key, image, title, replacements):
-    # replace_multiple's "001".."005" placeholders must be substituted before the real
-    # message-id link is spliced in - the link is a long, effectively-arbitrary Discord
-    # snowflake, and a blind string-replace over it could corrupt the URL if it ever
-    # happened to contain one of those digit sequences
+    # placeholders substituted before the link is spliced in, not after - see memory
     location_text = replace_multiple('''Go to the **001** and click on the 002 003!\n\nPick the option: **"004"**!\nYou will get 005 of the card.''', replacements)
 
     link = f"https://discord.com/channels/{vars.server_id}/{channel_ids['charms']}/{vars.card_message_ids[card_message_key]}"

@@ -205,8 +205,7 @@ def get_update_clause(self, new_values, custom_id=None):
 
             # protect from mismatched datatypes (except None)
             elif value is not None:
-                # BLOB columns read back as BytesIO (for direct use as a discord.File) but a
-                # fresh write value is naturally raw bytes - these represent the same data
+                # BytesIO (read-back BLOB) and raw bytes (fresh write) represent the same data
                 is_binary_object_pair = isinstance(old_value, io.BytesIO) and isinstance(value, (bytes, bytearray))
                 if old_value is not None and type(old_value) != type(value) and not is_binary_object_pair:
                     raise DatabaseError(f"datatype mismatch for column '{column}'")

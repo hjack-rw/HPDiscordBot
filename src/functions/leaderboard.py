@@ -155,7 +155,7 @@ def draw_leaderboard(user, rank, house, static, is_bytes=False):
             # scaling
             avatar = scale_image(base_width=xy[0], image=image)
         except (OSError, UnidentifiedImageError, TypeError) as error:
-            log(f"PIL error: failed to load image for {user.get('username')}:\n{error}")
+            log(f"PIL: failed to load image for {user.get('username')}: {error}")
 
     # black avatar if missing
     if avatar is None:
@@ -311,6 +311,7 @@ def create_leaderboard(server, data, custom_housecup):
         # get member, skip if can't
         member = server.get_member(user["user_id"])
         if member is None:
+            log(f"user_id {user['user_id']} not in member cache, skipping")
             continue
         else:
             if user["xp"] != rank_xp:

@@ -26,10 +26,7 @@ def get_today():
 
             kwargs['today'] = datetime.now(tz=vars.time_trigger[time_key].tzinfo)
 
-            # discord.ext.tasks.loop silently stops looping forever if an unhandled
-            # exception escapes the loop body - every _reminder task shares this wrapper,
-            # so catching here (rather than in each task individually) keeps every
-            # scheduled reminder alive even if one run of it fails.
+            # keeps every scheduled reminder alive if one run fails - see memory
             try:
                 return await func(*args, **kwargs)
             except Exception as error:
@@ -71,7 +68,7 @@ def get_image(url, delay=2, max_retries=10):
             return response.content
         except requests.exceptions.RequestException as error:
             attempts += 1
-            log(f"Error: failed to download image from {url}: {error}")
+            log(f"requests: failed to download image from {url}: {error}")
 
             if attempts < max_retries:
                 log(f"Retrying in {delay} seconds...")
@@ -100,8 +97,7 @@ def get_level_and_progress(xp_total):
     return level, round(progress, 2)
 
 
-# pets is a fixed catalog loaded once at import - no need to rescan it on every
-# get_animal_rank() call just to find the same max level every time
+# precomputed once - pets is a fixed catalog, no need to rescan per call
 MAX_PET_LEVEL = max(int("".join(filter(str.isdigit, level))) for level in vars.pets if level != "unknown")
 
 def get_animal_rank(user, level=None):

@@ -22,12 +22,7 @@ async def print_suitcase(info, level):
 
     embed.add_field(name="", value=f"*{pet['name']}* (Level {level})")
 
-    # pets are a fixed, code-defined catalog (not admin-uploaded content), so they're plain
-    # files under data/images/pets/, added by dropping a file there - no DB, no url stored.
-    # image_name is independent of name (renaming a pet's display name shouldn't silently
-    # break its file lookup). Extension on disk can be anything (png/jpg/webp/...);
-    # attachment:// always names it .png since Discord content-sniffs rather than trusting
-    # the filename extension.
+    # fixed catalog, plain files, no DB - see memory
     slug = pet["image"]
     local_files = glob(path.join(vars.image_data_path, "pets", f"{slug}.*"))
     if local_files:

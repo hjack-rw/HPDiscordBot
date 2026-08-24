@@ -9,7 +9,7 @@ import asyncio
 from atexit   import register
 from datetime import datetime, timedelta
 
-from discord.app_commands import Group
+from discord.app_commands import CommandTree, Group
 from discord.errors       import NotFound
 from discord.ext          import commands
 from discord.flags        import Intents
@@ -24,20 +24,25 @@ if test_bot["test_body"]:
     channel_ids = channel_ids_test
 
 
+# locks out everyone but the dev while any test_bot flag is set - see memory
+class DevOnlyTree(CommandTree):
+    async def interaction_check(self, interaction):
+        if is_test_mode() and interaction.user.id != dev_user_id:
+            await interaction.response.send_message("Sorry, the Bot is currently under maintenance!", ephemeral=True)
+            return False
+        return True
+
+
 # Main BOT body
 class BOT(commands.Bot):
-    
+
     def __init__(self):
-        # Intents.all() also pulls presences (nothing in this codebase reads member status/
-        # voice state) - the most gateway-chatty intent there is, wasted on hosting that's
-        # typically memory-capped. members + message_content are the only privileged
-        # intents actually used (SERVER.members/get_member/fetch_member everywhere;
-        # message.content/.embeds/.attachments in on_message, Add Image, portkey parsing).
+        # only members + message_content are actually used - see memory
         intents = Intents.default()
         intents.members         = True
         intents.message_content = True
 
-        super().__init__(command_prefix="/", intents=intents, application_id=bot_id)
+        super().__init__(command_prefix="/", intents=intents, application_id=bot_id, tree_cls=DevOnlyTree)
         
         self.server = None
         self.db     = Database
@@ -47,13 +52,14 @@ class BOT(commands.Bot):
         self.user_last_executed = {}
         self.user_last_reacted  = {}
 
-    # Async initialization goes here
-    async def async_init(self):
+    # runs before the gateway connects, unlike on_ready - see memory
+    async def setup_hook(self):
         DB = self.db
-        
+
         await DB.disable_journal()
 
         if await DB.is_empty():
+            log("Database was empty on startup - restoring blank schema")
             await DB.restore(clear=True)
 
         #TODO a hybrid connection to DB if hitting peak performance
@@ -69,10 +75,6 @@ class BOT(commands.Bot):
     # Start event
     async def on_ready(self):        
         log(f"{'Deployed' if is_test_mode() else 'Logged on as'} {self.user}!")
-
-
-        # asynchornous initialization
-        await self.async_init()
 
 
         # load commands
@@ -111,6 +113,7 @@ class BOT(commands.Bot):
                          #club_events_reminder,
                          game_midnight_reminder,
                          #midnight_reminder
+                         backup_rotation_task,
                         ]:
             if not reminder.is_running():
                 reminder.start(self)

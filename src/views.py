@@ -11,7 +11,7 @@ from discord.ui            import button, Button, View, Select
 from random import choice
 
 
-# welcome message
+# Welcome message
 class WelcomeView(View):
     
     def __init__(self, user, stickers):
@@ -45,7 +45,7 @@ class WelcomeView(View):
         await interaction.message.reply(content=f"<@{interaction.user.id}> says: Welcome <@{self.user.id}>! {sticker.description}", stickers=[sticker])
 
 
-# disciplines in a dropdown select
+# Disciplines in a dropdown select
 class DisciplinesView(View):
     def __init__(self, options):
         super().__init__(timeout=None)
@@ -71,7 +71,7 @@ class DisciplinesView(View):
             await self.parent_view.respond(interaction, choice_idx=matching_index)
 
 
-# yes/no confirmation
+# Yes/No confirmation
 class YesNoView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -101,7 +101,7 @@ class YesNoView(View):
         self.trigger = False
 
 
-# questions in a dropdown select
+# Questions in a dropdown select
 class QuestionnaireView(View):
     def __init__(self, options):
         super().__init__(timeout=None)
@@ -126,7 +126,7 @@ class QuestionnaireView(View):
             await self.parent_view.respond(interaction, choice=True if selected_value == "True" else False if selected_value == "False" else int(selected_value) if selected_value.isdigit() else None)
 
 
-# view pets of each level
+# Pets of each level
 class PetsView(View):
     def __init__(self, info):
         super().__init__(timeout=None)
@@ -171,7 +171,7 @@ class PetsView(View):
         self.pet = turn_limit(turnable=(self.pet+1), max=self.max_pet)
 
 
-# view members list
+# Members list
 class MemberView(View):
     def __init__(self, members, message):
         super().__init__(timeout=None)
@@ -196,14 +196,12 @@ class MemberView(View):
         if self.message is not None:
             try:
                 await self.message.edit(embed=list, view=self)
-            # the pinned message was deleted out from under us - degrade to the same
-            # no-message state a missing message at startup already leaves us in
+            # pinned message deleted out from under us - degrade like a missing message at startup
             except NotFound:
                 self.message = None
         elif interaction:
             await interaction.response.send_message(embed=list, view=self, ephemeral=True)
-        # else: no pinned message and no interaction to respond to (e.g. a background
-        # update_members() call while the members-list message doesn't exist) - nothing to do
+        # else: nothing to do - see memory
     
     # change printed members
     async def update_members(self, members):

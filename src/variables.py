@@ -16,24 +16,8 @@ image_data_path = os.getcwd() + "/data/images/"
 font_data_path  = os.getcwd() + "/data/fonts/"
 log_path        = os.getcwd() + "/data/bot.log"
 
-discord_token = os.getenv("DISCORD_TOKEN")
-bot_token     = os.getenv("DISCORD_BOT_TOKEN")
-
-try:
-    from pre_init import *
-except ImportError:
-    print("failed to import 'test_bot' from pre_init!")
-    test_bot = {"local_deploy": os.getcwd() != "/home/container",
-                "test_body":    False,
-                "test_command": False,
-                "test_events":  False,
-                "test_tasks":   False,}
-
-# test_bot itself may come from pre_init.py (a plain dict, out of our control) instead of the
-# fallback above - a function reading it fresh works regardless of which branch populated it,
-# unlike a dict subclass with a property, which pre_init's own plain dict would silently drop
-def is_test_mode():
-    return any(test_bot.values())
+discord_token = (os.getenv("DISCORD_TOKEN") or "").strip() or None
+bot_token     = (os.getenv("DISCORD_BOT_TOKEN") or "").strip() or None
 
 ############################################################################################################
 # Server-scoped config - repo-root server_config.toml (gitignored, one per deployment).
@@ -48,6 +32,21 @@ if not server_config_path.exists():
 
 with open(server_config_path, "rb") as file:
     server_config = tomllib.load(file)
+
+try:
+    from pre_init import *
+except ImportError:
+    print("failed to import 'test_bot' from pre_init!")
+    # no console access on most hosts to run pre_init.py's TUI - see memory
+    test_bot_overrides = server_config.get("test_bot", {})
+    test_bot = {"local_deploy": not os.path.exists("/.dockerenv"),
+                "test_body":    test_bot_overrides.get("test_body",    False),
+                "test_command": test_bot_overrides.get("test_command", False),
+                "test_events":  test_bot_overrides.get("test_events",  False),
+                "test_tasks":   test_bot_overrides.get("test_tasks",   False),}
+
+def is_test_mode():
+    return any(test_bot.values())
 
 bot_id      = server_config["bot_id"]
 dev_user_id = server_config["dev_user_id"]
@@ -84,8 +83,6 @@ numbers = {0: "0️⃣", 1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣",
 # Houses
 ############################################################################################################
 
-# crest is attachment://<house>.png - resolved from the same data/images/houses/<house>.png
-# file already used for card compositing (functions.py), not downloaded/hotlinked at all
 houses = {"other"     : {"emoji": "",                                             "crest": ""}, #for BOTS
           "gryffindor": {"emoji": "<:gryffindor:1255656359190462484> Gryffindor", "crest": "attachment://gryffindor.png"},
           "hufflepuff": {"emoji": "<:hufflepuff:1255656360780238849> Hufflepuff", "crest": "attachment://hufflepuff.png"},
@@ -102,10 +99,19 @@ def houses_names_list(is_short=True):
 # NPC avatars
 ############################################################################################################
 
-# name -> #assets message id (not a URL - webhook avatar_url needs a real URL, and Discord's
-# own CDN URLs expire in ~24h, so functions.py's get_avatar_url() re-fetches this message
-# fresh at send-time instead of storing one)
 custom_avatars = server_config["custom_avatars"]
+
+# slug -> proper display name shown in Discord - the slug itself is only a lookup key,
+# never user-facing (see memory)
+custom_avatar_names = { "mr_filch":        "Mr. Filch",
+                        "prof_dumbledore": "Prof. Dumbledore",
+                        "prof_flitwick":   "Prof. Flitwick",
+                        "prof_hagrid":     "Prof. Hagrid",
+                        "prof_mcgonagall": "Prof. McGonagall",
+                        "prof_slughorn":   "Prof. Slughorn",
+                        "prof_snape":      "Prof. Snape",
+                        "prof_sprout":     "Prof. Sprout",
+                        "prof_trelawney":  "Prof. Trelawney",}
 
 ############################################################################################################
 # House cup disciplines

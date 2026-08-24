@@ -1,7 +1,7 @@
 import src.variables as vars
 
 from src.db import ExtraVariable, Portkeys
-from src.functions  import get_today, log, print_notification
+from src.functions  import get_today, log, print_notification, upload_backup_rotation
 
 from calendar import isleap
 from datetime import datetime, time, timedelta
@@ -61,7 +61,7 @@ async def game_reset_reminder(bot, today):
         try:
             await DB.backup()
         except Exception as error:
-            log("task error, " + str(error))
+            log(str(error))
 
 
 # morning reminder:
@@ -181,8 +181,18 @@ async def midnight_reminder(bot, today):
     SERVER = bot.server
 
     # trigger on sunday (FOR STAFF ONLY!)
-    if (vars.test_bot["test_tasks"] or today.weekday() == 6):        
+    if (vars.test_bot["test_tasks"] or today.weekday() == 6):
         await print_notification(SERVER, event_name="Rankings", date=today)
+
+
+# backup rotation - pushes to Dropbox so an unplanned restart doesn't lose data, see memory
+@tasks.loop(hours=1)
+async def backup_rotation_task(bot):
+    if not vars.test_bot["test_tasks"]:
+        try:
+            await upload_backup_rotation()
+        except Exception as error:
+            log(str(error))
 
 
 # user create task

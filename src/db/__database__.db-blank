@@ -25,6 +25,10 @@ CREATE TABLE "extra_variables" (
 	"value"	INTEGER,
 	PRIMARY KEY("name","type_value")
 );
+INSERT INTO "extra_variables" VALUES('trigger_club_events','bool',0);
+INSERT INTO "extra_variables" VALUES('base_date_maintenance','datetime',9138);
+INSERT INTO "extra_variables" VALUES('housecup_disciplines','permutation_8_4',0);
+INSERT INTO "extra_variables" VALUES('housecup_reset','bool',0);
 CREATE TABLE "images" (
 	"filename"	TEXT NOT NULL UNIQUE,
 	"message_id"	INTEGER DEFAULT NULL,

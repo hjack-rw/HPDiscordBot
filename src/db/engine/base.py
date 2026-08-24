@@ -247,8 +247,7 @@ class Database():
     async def _insert(self, required_columns, defaults, new_record, custom_id=None):
         """Command INSERT"""
 
-        # get columns/values for a new record; the row itself is written to raw_data only
-        # after the insert actually succeeds (and we know its real id, for autoincrement)
+        # raw_data is written only after the insert succeeds - see memory
         columns, sql_values, entire_row = await get_sql_values(self, required_columns, defaults, new_record, custom_id)
 
         # prepare the record to be inserted
