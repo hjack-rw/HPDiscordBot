@@ -270,11 +270,11 @@ class AdminCommands(Group):
                 custom_housecup_message = await CHANNEL.send(content="", embed=Embed(title="The leading house is... ", color=vars.system_embed_color))
                 custom_housecup = [CustomHousecup(house=role.name, all_members_count=len(role.members)) for role in SERVER.roles if role.name in set(vars.houses_names_list())]
 
-            # warm the member cache before threading - see memory
+            # warm the member cache before threading - fetch_member() doesn't cache on its own - see memory
             for user in data:
                 if SERVER.get_member(user["user_id"]) is None:
                     try:
-                        await SERVER.fetch_member(user["user_id"])
+                        SERVER._add_member(await SERVER.fetch_member(user["user_id"]))
                     except NotFound:
                         log(f"user_id {user['user_id']} no longer in the server, skipping")
 

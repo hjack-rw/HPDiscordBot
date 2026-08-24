@@ -84,7 +84,7 @@ def get_position(center, image_center, offset=(0,0)):
 
 
 def draw_infocard(new_user, all_members_count):
-    background = Image.open(vars.image_data_path + "card/template.png")
+    background = Image.open(vars.image_data_path + "welcome_card/template.png")
 
     ## profile picture ##
     url = get_avatar(user=new_user)
@@ -190,9 +190,9 @@ def draw_leaderboard(user, rank, house, static, is_bytes=False):
 
     draw.multiline_text(xy=(570, 160 if "\n" in user["username"] else 128), text=user["username"], fill=(235,235,235), font=name_font, align="left", anchor='lm', spacing=-35)
 
-    # add house logo
+    # cards draw the small house emoji, not the full crest (that's housecup-only) - see memory
     if house:
-        house_logo = Image.open(vars.image_data_path + f"houses/{house}.png")
+        house_logo = Image.open(vars.image_data_path + f"houses/emoji/{house}.png")
         background.alpha_composite(im=house_logo, dest=(388, 194))
 
     # progress details (pet name and level)

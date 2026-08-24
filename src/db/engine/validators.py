@@ -82,10 +82,13 @@ def sql_create_linked_record(func):
     @functools.wraps(func)
     async def decorator(self, *args, **kwargs):
         is_new = kwargs.get("is_new", False)
-        result = await func(self, *args, **kwargs)
 
-        # if the main table is new
-        if is_new:
+        if not is_new:
+            return await func(self, *args, **kwargs)
+
+        # both inserts happen atomically now - see memory
+        async with self.transaction():
+            result = await func(self, *args, **kwargs)
 
             # check if linked record already exsits
             column_id = self._get_id_column()

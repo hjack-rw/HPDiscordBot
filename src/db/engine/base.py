@@ -7,6 +7,7 @@ import re
 import sqlite3
 
 from collections import namedtuple
+from contextlib  import asynccontextmanager
 
 from src.db.engine.common      import module_name, db_access_lock, popattr, DatabaseError, RecordNotFoundError
 from src.db.engine.conversions import permutation, convert_int_to_date, convert_date_to_int, is_binary, check_type
@@ -25,6 +26,7 @@ class Database():
     database_name    = "__database__.db"
 
     con = None
+    _in_transaction = False
 
     def __init__(self):
         self.columns  = {}
@@ -75,9 +77,10 @@ class Database():
         @functools.wraps(func)
         async def decorator(cls, *args, **kwargs):
 
-            # wait if restore is in progress
-            async with db_access_lock:
-                pass
+            # wait if restore is in progress - skipped if we already hold the lock - see memory
+            if not Database._in_transaction:
+                async with db_access_lock:
+                    pass
 
             # a hybrid connection
             if not getattr(cls, 'con', None):
@@ -101,11 +104,32 @@ class Database():
                     return await cur.fetchall()
                 result = QueryResult(rowcount=cur.rowcount, lastrowid=cur.lastrowid)
 
-            await cls.con.commit()
+            # skipped inside a transaction() block, which commits everything at the end - see memory
+            if not Database._in_transaction:
+                await cls.con.commit()
             return result
 
         except aiosqlite.Error as error:
             raise DatabaseError(f"{module_name} QUERY error: {str(error)}")
+
+    @classmethod
+    @asynccontextmanager
+    async def transaction(cls):
+        """Run multiple statements atomically - either all commit or none do - see memory"""
+
+        if not getattr(cls, 'con', None):
+            await cls.connect()
+
+        async with db_access_lock:
+            Database._in_transaction = True
+            try:
+                yield
+                await cls.con.commit()
+            except Exception:
+                await cls.con.rollback()
+                raise
+            finally:
+                Database._in_transaction = False
 
     @classmethod
     async def backup(cls):

@@ -5,6 +5,9 @@ what was broken so the fix's intent stays legible even after the bug itself is h
 """
 import os
 
+from contextlib import asynccontextmanager
+from types      import SimpleNamespace
+
 import pytest
 
 from src.db import Experience, ExperienceInfo, Images
@@ -89,6 +92,10 @@ async def test_sql_create_linked_record_does_not_treat_optional_param_as_missing
         async def get_joined_table(self, **kwargs):
             return None  # linked record doesn't exist yet -> should attempt auto-create
 
+        @asynccontextmanager
+        async def transaction(self):
+            yield  # no real DB here, nothing to commit/roll back
+
     @sql_create_linked_record
     async def tweak(self, is_new, user_id, pet_ashwinder):
         return "ok"
@@ -96,3 +103,42 @@ async def test_sql_create_linked_record_does_not_treat_optional_param_as_missing
     await tweak(FakeSelf(), is_new=True, user_id=777, pet_ashwinder=True)
 
     assert created == {"user_id": 777, "pet_ashwinder": True, "defaults": None}
+
+
+@pytest.mark.asyncio
+async def test_experience_tweak_creates_both_rows(db):
+    """Experience.tweak() on a brand-new user_id should end with both the experience row and
+    its auto-created experience_info row present - the normal, successful path."""
+
+    member = SimpleNamespace(id=222, roles=[])
+    exp = await Experience.initialize()
+    await exp.tweak(server=None, member=member, amount=15)
+
+    assert 222 in (await Experience.initialize()).raw_data
+    assert 222 in (await ExperienceInfo.initialize()).raw_data
+
+
+@pytest.mark.asyncio
+async def test_experience_tweak_rolls_back_on_linked_record_failure(db, monkeypatch):
+    """Real cause behind two live users showing an experience row with no matching
+    experience_info row (silently dropped off the leaderboard's INNER JOIN, see
+    project_comment-rationale-archive memory): sql_create_linked_record used to insert the
+    experience row and its linked experience_info row as two separate, independently
+    committed statements - if anything interrupted execution between them (a crash, a race
+    with another path creating the same link), the experience row stayed committed with no
+    link. Both inserts now share one transaction() - forcing the linked-record step to fail
+    must roll back the experience insert too, leaving neither row behind."""
+
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("simulated failure creating the linked record")
+
+    monkeypatch.setattr(ExperienceInfo, "add", _raise)
+
+    member = SimpleNamespace(id=333, roles=[])
+    exp = await Experience.initialize()
+
+    with pytest.raises(Exception):
+        await exp.tweak(server=None, member=member, amount=15)
+
+    assert 333 not in (await Experience.initialize()).raw_data
+    assert 333 not in (await ExperienceInfo.initialize()).raw_data

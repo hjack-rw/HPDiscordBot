@@ -26,7 +26,7 @@ class GeneralCommands(Group):
         member = interaction.user
         info = await ExperienceInfo.initialize(extended=True, user_id=member.id, omitted_columns=["xp", "level", "progress"])
 
-        if (is_archived := info.get_one_column("archived")) is True:
+        if info.get_one_column("archived") is True:
             USER_EXPERIENCE = bot.user_experience
             await USER_EXPERIENCE.unarchive(user_id=member.id)
 
@@ -70,14 +70,18 @@ class GeneralCommands(Group):
 
             all_picked[questions[question_idx]["variable"]] = picked
 
-        # insert a new record
-        if is_archived is None:
-            await (await ExperienceInfo.initialize()).add(user_id=member.id,
-                                                          pet_ashwinder=not bool({role.name for role in getattr(member, "roles", [])} & {vars.club_name_short, "guest"}),
-                                                          defaults=all_picked)
-        # otherwise modify record
-        else:
-            await info.change(**all_picked)
+        # re-check fresh, don't trust the pre-wait read - see memory
+        async with ExperienceInfo.transaction():
+            info = await ExperienceInfo.initialize(extended=True, user_id=member.id, omitted_columns=["xp", "level", "progress"])
+
+            # insert a new record
+            if info.get_one_column("archived") is None:
+                await (await ExperienceInfo.initialize()).add(user_id=member.id,
+                                                              pet_ashwinder=not bool({role.name for role in getattr(member, "roles", [])} & {vars.club_name_short, "guest"}),
+                                                              defaults=all_picked)
+            # otherwise modify record
+            else:
+                await info.change(**all_picked)
 
 
     @command(name="suitcase")

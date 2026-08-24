@@ -15,7 +15,7 @@ DROPBOX_TOKEN_URL       = "https://api.dropboxapi.com/oauth2/token"
 DROPBOX_UPLOAD_URL      = "https://content.dropboxapi.com/2/files/upload"
 DROPBOX_LIST_FOLDER_URL = "https://api.dropboxapi.com/2/files/list_folder"
 DROPBOX_DELETE_URL      = "https://api.dropboxapi.com/2/files/delete_v2"
-DROPBOX_BACKUP_FOLDER   = "/HPDiscordBot/backups"
+DROPBOX_BACKUP_FOLDER   = "/Projects/DiscordBOT/backups"
 MAX_BACKUPS             = 3
 
 # duplicated from src/db/engine/base.py - importing Database here would cycle back

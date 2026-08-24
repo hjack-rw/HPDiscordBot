@@ -2,6 +2,7 @@ from datetime    import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from io          import BytesIO
 from os          import getcwd, getenv, makedirs, path
+from shutil      import copyfile
 from threading   import Thread
 from traceback   import format_exc
 from urllib.parse  import urlparse, parse_qs
@@ -18,7 +19,7 @@ DROPBOX_TOKEN_URL       = "https://api.dropboxapi.com/oauth2/token"
 DROPBOX_DOWNLOAD_URL    = "https://content.dropboxapi.com/2/files/download"
 DROPBOX_LIST_FOLDER_URL = "https://api.dropboxapi.com/2/files/list_folder"
 # duplicated from src/functions/backups.py - src isn't importable yet here
-DROPBOX_BACKUP_FOLDER = "/HPDiscordBot/backups"
+DROPBOX_BACKUP_FOLDER = "/Projects/DiscordBOT/backups"
 
 
 def _early_log(message):
@@ -77,17 +78,35 @@ def _fetch_zip_bytes():
         return response.read()
 
 
+def _ensure_server_config():
+    ''' seeds server_config.toml from the example so a clean instance (no asset source
+    configured) can still start, instead of crashing at import time - see memory '''
+    config_path    = path.join(getcwd(), "server_config.toml")
+    example_path   = path.join(getcwd(), "server_config.example.toml")
+
+    if not path.exists(config_path) and path.exists(example_path):
+        copyfile(example_path, config_path)
+        _early_log("fetch_assets: server_config.toml missing, seeded from server_config.example.toml")
+
+
 def fetch_assets():
     ''' Fetches gitignored assets - prefers the latest Dropbox backup, falls back to
     ASSET_ZIP_URL. Must run before src is imported. '''
     if getenv("SKIP_ASSET_FETCH", "False") == "True":
         _early_log("fetch_assets: SKIP_ASSET_FETCH=True, skipping")
+        _ensure_server_config()
         return
 
     raw = _fetch_zip_bytes()
     if raw is None:
         _early_log("fetch_assets: no asset source configured, skipping")
+        _ensure_server_config()
         return
+
+    # a dead/replaced share link serves an HTML error page, not a 404 - fail loudly, unlike
+    # the unset case above: a configured-but-broken source means something is actually wrong - see memory
+    if not raw.startswith(b"PK"):
+        raise RuntimeError(f"fetch_assets: source did not return a zip file (got {raw[:80]!r})")
 
     with ZipFile(BytesIO(raw)) as archive:
         # manual extraction works around a backslash-path zip bug - see memory
@@ -113,9 +132,21 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
         if route == "/logs":
             self._serve_logs()
+        elif route == "/":
+            self._serve_index()
         else:
             self.send_response(200)
             self.end_headers()
+
+    def _serve_index(self):
+        # no secrets here - this is the public root, unlike /logs
+        body = ("<!doctype html><title>HPDiscordBot</title>"
+                "<h1>HPDiscordBot</h1><ul><li><a href=\"/logs\">/logs</a> (needs ?key=...)</li></ul>").encode("utf-8")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _serve_logs(self):
         # gated behind LOG_ACCESS_KEY - unset means disabled, not open
