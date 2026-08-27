@@ -71,6 +71,30 @@ class DisciplinesView(View):
             await self.parent_view.respond(interaction, choice_idx=matching_index)
 
 
+# Redeploy source in a dropdown select
+class RedeploySourceView(View):
+    def __init__(self, options):
+        super().__init__(timeout=None)
+
+        self.dropdown = self.RedeploySourceList(options, self)
+        self.picked = None
+
+        self.add_item(self.dropdown)
+
+    @disable_after
+    async def respond(self, interaction:Interaction, source_id):
+        self.picked = source_id
+
+    class RedeploySourceList(Select):
+        def __init__(self, options, parent_view):
+            super().__init__(placeholder="Choose a source...", options=options)
+
+            self.parent_view = parent_view
+
+        async def callback(self, interaction:Interaction):
+            await self.parent_view.respond(interaction, source_id=self.values[0])
+
+
 # Yes/No confirmation
 class YesNoView(View):
     def __init__(self):

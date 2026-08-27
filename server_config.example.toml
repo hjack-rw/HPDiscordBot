@@ -12,9 +12,9 @@ club_name_short = "" # short form, used where space is tight
 
 members_list_message_id = 0 # pinned message in marauders-map the member-list view edits in place
 
-# Optional. Only used when pre_init.py isn't present (e.g. on Back4app, where it's excluded
-# from the image - no console access there to run its TUI). Omit this whole section, or any
-# key in it, to default to False - same as pre_init.py's own defaults.
+# Optional. Only used when pre_init.py isn't present (e.g. in a container deploy, where it's
+# excluded from the image - no console access there to run its TUI). Omit this whole section,
+# or any key in it, to default to False - same as pre_init.py's own defaults.
 # [test_bot]
 # test_body    = false
 # test_command = false

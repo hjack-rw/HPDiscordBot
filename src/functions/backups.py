@@ -6,6 +6,7 @@ from asyncio  import to_thread
 from io       import BytesIO
 from os       import getcwd, getenv, path, walk
 from time     import time
+from urllib.request import urlopen
 from zipfile  import ZipFile, ZIP_DEFLATED
 
 import json
@@ -13,10 +14,12 @@ import json
 
 DROPBOX_TOKEN_URL       = "https://api.dropboxapi.com/oauth2/token"
 DROPBOX_UPLOAD_URL      = "https://content.dropboxapi.com/2/files/upload"
+DROPBOX_DOWNLOAD_URL    = "https://content.dropboxapi.com/2/files/download"
 DROPBOX_LIST_FOLDER_URL = "https://api.dropboxapi.com/2/files/list_folder"
 DROPBOX_DELETE_URL      = "https://api.dropboxapi.com/2/files/delete_v2"
 DROPBOX_BACKUP_FOLDER   = "/Projects/DiscordBOT/backups"
 MAX_BACKUPS             = 3
+BASE_SOURCE             = "base"
 
 # duplicated from src/db/engine/base.py - importing Database here would cycle back
 # through src.db.models -> src.functions
@@ -76,6 +79,13 @@ def _delete(dropbox_path, access_token):
     response.raise_for_status()
 
 
+def _download(dropbox_path, access_token):
+    headers = {"Authorization": f"Bearer {access_token}", "Dropbox-API-Arg": json.dumps({"path": dropbox_path})}
+    response = session.post(DROPBOX_DOWNLOAD_URL, headers=headers)
+    response.raise_for_status()
+    return response.content
+
+
 def _upload_backup_rotation_sync():
     access_token = _get_access_token()
     zip_bytes = _build_backup_zip()
@@ -95,3 +105,63 @@ async def upload_backup_rotation():
         return
 
     await to_thread(_upload_backup_rotation_sync)
+
+
+def _list_backup_sources_sync():
+    sources = [("Base (seed)", BASE_SOURCE)]
+
+    if not getenv("DROPBOX_REFRESH_TOKEN"):
+        return sources
+
+    access_token = _get_access_token()
+    entries = sorted(_list_backups(access_token), key=lambda entry: entry["server_modified"], reverse=True)
+    sources += [(entry["name"], entry["path_lower"]) for entry in entries]
+
+    return sources
+
+
+async def list_backup_sources():
+    ''' [("Base (seed)", "base"), ...live Dropbox backups newest-first] - for populating
+    the redeploy command's source picker '''
+    return await to_thread(_list_backup_sources_sync)
+
+
+def _fetch_source_zip_bytes_sync(source):
+    if source == BASE_SOURCE:
+        url = getenv("ASSET_ZIP_URL")
+        if not url:
+            raise RuntimeError("redeploy: ASSET_ZIP_URL is not configured")
+        with urlopen(url) as response:
+            return response.read()
+
+    access_token = _get_access_token()
+    return _download(source, access_token)
+
+
+async def fetch_source_zip_bytes(source):
+    ''' source is "base" or a Dropbox path_lower from list_backup_sources() '''
+    return await to_thread(_fetch_source_zip_bytes_sync, source)
+
+
+def split_backup_zip(raw_bytes):
+    ''' Parses a backup/seed zip into (db_bytes_or_None, {normalized_path: file_bytes}) -
+    manual per-entry extraction to work around the same backslash-path zip bug fetch_assets()
+    (main.py) works around; never touches Database, see module comment above '''
+    db_bytes = None
+    other_files = {}
+
+    with ZipFile(BytesIO(raw_bytes)) as archive:
+        for member in archive.infolist():
+            normalized = member.filename.replace("\\", "/")
+            if normalized.endswith("/"):
+                continue
+
+            with archive.open(member) as file:
+                data = file.read()
+
+            if normalized == "data/__database__.db":
+                db_bytes = data
+            else:
+                other_files[normalized] = data
+
+    return db_bytes, other_files

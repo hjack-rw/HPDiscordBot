@@ -153,6 +153,22 @@ class Database():
             raise DatabaseError(f"sqlite3 BACKUP error: {str(error)}")
 
     @classmethod
+    async def _swap_database_file(cls, write_fn):
+        """Exclusive-lock disconnect -> write_fn() (sync, off-thread) -> reconnect"""
+
+        async with db_access_lock:
+            await cls.disconnect()
+            os.makedirs(cls.database_path, exist_ok=True)
+
+            try:
+                # blocking sqlite3/file I/O off the event loop thread
+                await asyncio.to_thread(write_fn)
+            except Exception as error:
+                raise DatabaseError(f"sqlite3 RESTORE error: {str(error)}")
+
+            await cls.connect()
+
+    @classmethod
     async def restore(cls, clear=False):
         """Restore database from a dump file"""
 
@@ -191,18 +207,21 @@ class Database():
             if errors:
                 raise DatabaseError("\n\n".join(errors))
 
-        # exclusive lock
-        async with db_access_lock:
-            await cls.disconnect()
-            os.makedirs(cls.database_path, exist_ok=True)
+        await cls._swap_database_file(_do_restore)
 
-            try:
-                # blocking sqlite3/file I/O off the event loop thread
-                await asyncio.to_thread(_do_restore)
-            except Exception as error:
-                raise DatabaseError(f"sqlite3 RESTORE error: {str(error)}")
+    @classmethod
+    async def restore_from_bytes(cls, db_bytes):
+        """Restore database from raw sqlite file bytes (e.g. pulled from a Dropbox backup zip)"""
 
-            await cls.connect()
+        DB_PATH = os.path.join(cls.database_path, cls.database_name)
+
+        def _do_restore_from_bytes():
+            if os.path.exists(DB_PATH):
+                os.remove(DB_PATH)
+            with open(DB_PATH, "wb") as file:
+                file.write(db_bytes)
+
+        await cls._swap_database_file(_do_restore_from_bytes)
 
     @classmethod
     async def disable_journal(cls):

@@ -2,14 +2,14 @@ import src.variables as vars
 
 from src.body       import bot
 from src.db         import *
-from src.functions  import CustomHousecup, create_leaderboard, draw_infocard, get_avatar, log, print_portkey, send_webhook, standard_response
+from src.functions  import CustomHousecup, create_leaderboard, draw_infocard, get_avatar, log, print_portkey, send_webhook, standard_response, list_backup_sources, fetch_source_zip_bytes, split_backup_zip, upload_backup_rotation
 from src.tasks      import print_notification
 from src.views      import *
 
 from asyncio    import to_thread
 from datetime   import datetime, timedelta
 from itertools  import chain
-from os         import path, walk
+from os         import getcwd, makedirs, path, walk
 from statistics import mean, stdev
 from typing     import Literal, Optional
 from zipfile    import ZipFile, ZIP_DEFLATED
@@ -61,6 +61,62 @@ class AdminCommands(Group):
         bot.user_experience = await Experience.initialize()
 
         await interaction.response.send_message("The Database was **restored**!", ephemeral=True)
+
+    @command(name="redeploy_data")
+    @standard_response(silent=True)
+    async def redeploy(self, interaction:Interaction):
+        ''' Redeploy DB/config/images from the base seed or a chosen Dropbox backup '''
+
+        sources = await list_backup_sources()
+        options = [SelectOption(label=name, value=source_id) for name, source_id in sources]
+
+        await interaction.response.send_message("Pick a source to redeploy from:", ephemeral=True)
+        picker = RedeploySourceView(options)
+        await interaction.followup.send(view=picker, ephemeral=True)
+        await picker.wait()
+
+        if picker.picked is None:
+            return await interaction.followup.send("No source picked, aborted.", ephemeral=True)
+
+        label = next(name for name, source_id in sources if source_id == picker.picked)
+        confirm = YesNoView()
+        await interaction.followup.send(
+            f"This will **overwrite the live DB/config/images** with **{label}**, discarding "
+            "anything written since. A fresh snapshot of the current state will be taken first. Continue?",
+            view=confirm, ephemeral=True,
+        )
+        await confirm.wait()
+
+        if not confirm.trigger:
+            return await interaction.followup.send("Redeploy cancelled.", ephemeral=True)
+
+        # snapshot current live state first, so a bad pick is immediately undoable - no-op if
+        # DROPBOX_REFRESH_TOKEN is unset, same fallback as everywhere else this is used
+        await upload_backup_rotation()
+
+        raw = await fetch_source_zip_bytes(picker.picked)
+        if not raw.startswith(b"PK"):
+            raise Exception("redeploy: source did not return a zip file")
+
+        db_bytes, other_files = split_backup_zip(raw)
+
+        if db_bytes is not None:
+            DB = bot.db
+            await DB.restore_from_bytes(db_bytes)
+
+            # reload XP automatically when DB has been changed - see restore_db above
+            bot.user_experience = await Experience.initialize()
+
+        for normalized, data in other_files.items():
+            target = path.join(getcwd(), *normalized.split("/"))
+            makedirs(path.dirname(target), exist_ok=True)
+            with open(target, "wb") as file:
+                file.write(data)
+
+        await interaction.followup.send(
+            f"**Redeployed** from **{label}**! (config/image changes apply on the next restart)",
+            ephemeral=True,
+        )
 
     @command(name="export_data")
     @standard_response()

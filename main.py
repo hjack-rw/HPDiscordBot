@@ -233,7 +233,5 @@ if __name__ == '__main__':
 # - automatic add to a paste service
 
 #TODO! db changes:
-# - insert without defaults if provided
-# - more backups?
 # - update multiple, instead of just one?
 # - multiple primary keys?
