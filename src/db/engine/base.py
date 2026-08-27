@@ -10,7 +10,7 @@ from collections import namedtuple
 from contextlib  import asynccontextmanager
 
 from src.db.engine.common      import module_name, db_access_lock, popattr, DatabaseError, RecordNotFoundError
-from src.db.engine.conversions import permutation, convert_int_to_date, convert_date_to_int, is_binary, check_type
+from src.db.engine.conversions import permutation, convert_int_to_date, convert_date_to_int, is_binary, check_type, convert_int_to_binary, convert_binary_to_int
 from src.db.engine.clauses     import Filter, apply_selected_columns, apply_conditions, apply_order, get_sql_values, get_update_clause
 
 
@@ -170,7 +170,7 @@ class Database():
 
     @classmethod
     async def restore(cls, clear=False):
-        """Restore database from a dump file"""
+        """RESTORE database from a dump file"""
 
         DB_PATH   = os.path.join(cls.database_path, cls.database_name)
         DUMP_PATH = os.path.join(cls.schema_seed_path if clear else cls.database_path,
@@ -211,7 +211,7 @@ class Database():
 
     @classmethod
     async def restore_from_bytes(cls, db_bytes):
-        """Restore database from raw sqlite file bytes (e.g. pulled from a Dropbox backup zip)"""
+        """RESTORE database from raw sqlite file bytes (e.g. pulled from a Dropbox backup zip)"""
 
         DB_PATH = os.path.join(cls.database_path, cls.database_name)
 
@@ -225,8 +225,6 @@ class Database():
 
     @classmethod
     async def disable_journal(cls):
-        """Restore database from a dump file"""
-
         await cls.run_query(query="PRAGMA journal_mode=DELETE;")
         await cls.run_query(query="VACUUM;")
 
@@ -390,7 +388,7 @@ class Database():
                 value = io.BytesIO(value)
                 value.seek(0)
                 return value
-            return f"{int(value):0{int(type.split('_')[1])}b}"
+            return convert_int_to_binary(value, int(type.split('_')[1]))
         elif type == "bool":
             return bool(value)
         elif type == "datetime":
@@ -419,7 +417,7 @@ class Database():
             return value.convert_permutation_to_int()
         elif type == "str":
             if is_binary(value):
-                return int(value, 2)
+                return convert_binary_to_int(value)
             return value
         return value
 

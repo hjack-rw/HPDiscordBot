@@ -19,12 +19,24 @@ def convert_date_to_int(date:datetime):
     delta = date - base_date
     return delta.days
 
+def convert_year_to_db(year:int):
+    return year - 1900
+
+def convert_db_to_year(value:int):
+    return value + 1900
+
 # binary
 def is_binary(string:str):
     string = set(string)
     if string == {'0', '1'} or string == {'0'} or string == {'1'}:
         return True
     return False
+
+def convert_int_to_binary(value:int, width:int):
+    return f"{int(value):0{width}b}"
+
+def convert_binary_to_int(value:str):
+    return int(value, 2)
 
 # permutation
 class permutation:

@@ -14,13 +14,14 @@ from statistics import mean, stdev
 from typing     import Literal, Optional
 from zipfile    import ZipFile, ZIP_DEFLATED
 
-from discord.app_commands import checks, choices, Choice, Group, command
+from discord.app_commands import choices, Choice, Group, MissingPermissions
 from discord.components   import SelectOption
 from discord.embeds       import Embed
 from discord.errors       import NotFound
 from discord.file         import File
 from discord.interactions import Interaction
 from discord.member       import Member
+from discord.permissions  import Permissions
 
 
 # SETTINGS
@@ -33,13 +34,31 @@ else:
     channel_ids = vars.channel_ids
 
 
-@checks.has_permissions(administrator=True)
 class AdminCommands(Group):
     def __init__(self):
-        super().__init__(name="_admin", description="Admin-only commands")
+        # Discord-side hint, hides/blocks the group from non-admins by default - defense in
+        # depth alongside interaction_check() below, which is the real enforcement, see memory
+        super().__init__(name="_admin", description="Admin-only commands", default_permissions=Permissions(administrator=True))
 
-    # DB functionality
-    @command(name="backup_db")
+    # nested subgroups - interaction_check() below cascades into all of these automatically
+    db_testing = Group(name="db_testing", description="Local, same-session DB backup/restore for testing")
+    db         = Group(name="db",         description="Durable DB/asset redeploy and export")
+    event      = Group(name="event",      description="Club events, maintenance, house cup disciplines")
+    webhook    = Group(name="webhook",    description="Webhook-impersonation and manual notifications")
+    portkey    = Group(name="portkey",    description="Portkey acceptance and posting")
+    leaderboard = Group(name="leaderboard", description="Leaderboard and XP management")
+    cleanup    = Group(name="cleanup",    description="Channel cleanup utilities")
+
+    async def interaction_check(self, interaction:Interaction) -> bool:
+        ''' the real admin-only gate - replaces a checks.has_permissions class decorator that
+        never actually worked, see memory '''
+
+        if not interaction.permissions.administrator:
+            raise MissingPermissions(["administrator"])
+        return True
+
+    # DB functionality - local, no Dropbox round trip, same-session undo while testing
+    @db_testing.command(name="backup_db")
     @standard_response(silent=True)
     async def backup_db(self, interaction:Interaction):
         ''' Backup the Database manually '''
@@ -49,7 +68,7 @@ class AdminCommands(Group):
 
         await interaction.response.send_message("The Database was **backed up**!", ephemeral=True)
 
-    @command(name="restore_db")
+    @db_testing.command(name="restore_db")
     @standard_response(silent=True)
     async def restore_db(self, interaction:Interaction):
         ''' Restore the Database from backup '''
@@ -62,7 +81,7 @@ class AdminCommands(Group):
 
         await interaction.response.send_message("The Database was **restored**!", ephemeral=True)
 
-    @command(name="redeploy_data")
+    @db.command(name="redeploy_data")
     @standard_response(silent=True)
     async def redeploy(self, interaction:Interaction):
         ''' Redeploy DB/config/images from the base seed or a chosen Dropbox backup '''
@@ -118,7 +137,7 @@ class AdminCommands(Group):
             ephemeral=True,
         )
 
-    @command(name="export_data")
+    @db.command(name="export_data")
     @standard_response()
     async def export_data(self, interaction:Interaction):
         ''' Get the Database file, its dump, and a zip of all stored Images as attachments '''
@@ -146,7 +165,7 @@ class AdminCommands(Group):
     ############################################################################################################
 
     # Event functionality
-    @command(name="postpone")
+    @event.command(name="postpone")
     @standard_response(silent=True)
     async def postpone_club_event_24h(self, interaction:Interaction):
         ''' Postpone the next Club Event by 24h in DB '''
@@ -159,7 +178,7 @@ class AdminCommands(Group):
         await interaction.response.send_message(f"The next Club Event will be **{'restored' if trigger_club_events.get() else 'skipped'}**!", ephemeral=True)
 
 
-    @command(name="set_maintenance")
+    @event.command(name="set_maintenance")
     @standard_response(silent=True)
     async def set_maintenance_base_date(self, interaction:Interaction, month:Literal[tuple(vars.months.keys())], day:int): # type: ignore
         ''' Set the base Date for Maintenance in DB '''
@@ -174,7 +193,7 @@ class AdminCommands(Group):
         await interaction.response.send_message(f"The next Maintenance will trigger **every two weeks** from **{new_date.strftime('%d/%m/%Y')}**", ephemeral=True)
 
 
-    @command(name="add_disciplines")
+    @event.command(name="add_disciplines")
     @standard_response(silent=True)
     async def add_disciplines(self, interaction:Interaction):
         ''' Add House Cup disciplines to DB '''
@@ -205,7 +224,7 @@ class AdminCommands(Group):
     ############################################################################################################
 
     # Webhook functionality
-    @command(name="polyjuice")
+    @webhook.command(name="polyjuice")
     @choices(option=[Choice(name=display_name, value=slug) for slug, display_name in vars.custom_avatar_names.items()])
     @standard_response()
     async def send_as(self, interaction:Interaction, member:Optional[Member], option:Optional[str], say:str):
@@ -222,7 +241,7 @@ class AdminCommands(Group):
             raise Exception("pick a 'member' or an 'option'")
 
 
-    @command(name="send_notification")
+    @webhook.command(name="send_notification")
     @standard_response()
     async def send_notification(self, interaction:Interaction, event:Literal[tuple(vars.notification_dict().keys())], member:Optional[Member], same_day:Optional[bool]=False): # type: ignore
         ''' Send the Notification manually '''
@@ -266,7 +285,7 @@ class AdminCommands(Group):
     ############################################################################################################
 
     # Portkey handling functionality
-    @command(name="accept_portkey")
+    @portkey.command(name="accept_portkey")
     @standard_response()
     async def accept_portkey_for_user(self, interaction:Interaction, message_id:str, member:Member):
         ''' Accept Portkey for User '''
@@ -281,7 +300,7 @@ class AdminCommands(Group):
             raise Exception("what you are trying to accept is not a Portkey")
 
 
-    @command(name="post_portkey")
+    @portkey.command(name="post_portkey")
     @standard_response()
     async def post_portkey(self, interaction:Interaction, portkey_id:str="last"):
         ''' Print a Portkey '''
@@ -305,7 +324,7 @@ class AdminCommands(Group):
     ############################################################################################################
 
     # Leaderboard functionality
-    @command(name="update_lb")
+    @leaderboard.command(name="update_lb")
     @standard_response()
     async def update_leaderboard(self, interaction: Interaction, mention_all:bool=True, with_custom_housecup:bool=True):
         ''' Updates the Server's Leaderboard '''
@@ -370,7 +389,7 @@ class AdminCommands(Group):
                 await custom_housecup_message.edit(content="", embed=custom_housecup_embed, attachments=[crest_file])
 
 
-    @command(name="tweak_xp")
+    @leaderboard.command(name="tweak_xp")
     @standard_response(silent=True)
     async def tweak_xp_manually(self, interaction: Interaction, member:Member, action:Literal["Add", "Subtract", "Set"]="Add", amount:int=10, comment:Optional[str]=None):
         ''' Add / Subtract / Set  XP for User '''
@@ -396,7 +415,7 @@ class AdminCommands(Group):
             await CHANNEL.send(content=log)
 
 
-    @command(name="reset_xp")
+    @leaderboard.command(name="reset_xp")
     @standard_response(silent=True)
     async def reset_xp(self, interaction: Interaction, member:Member):
         ''' Reset XP for User '''
@@ -411,7 +430,7 @@ class AdminCommands(Group):
         await CHANNEL.send(content=f"**{member.display_name}** - points reseted! XP: **0**")
 
 
-    @command(name="reload_xp")
+    @leaderboard.command(name="reload_xp")
     @standard_response(silent=True)
     async def reload_xp(self, interaction:Interaction):
         ''' Reload XP data manually if DB has been changed '''
@@ -421,7 +440,7 @@ class AdminCommands(Group):
         await interaction.response.send_message("The XP data has been **reloaded**!", ephemeral=True)
 
 
-    @command(name="change_lb")
+    @leaderboard.command(name="change_lb")
     @standard_response(silent=True)
     async def change_leaderboard(self, interaction: Interaction, member:Member, username:Optional[str], offset:Optional[bool]):
         ''' Change the Leaderboard properties for User '''
@@ -450,7 +469,7 @@ class AdminCommands(Group):
     ############################################################################################################
 
     # Cleanup functionality
-    @command(name="clear_downtime")
+    @cleanup.command(name="clear_downtime")
     @standard_response()
     async def clear_downtime(self, interaction:Interaction):
         ''' Delete all Downtime-logging messages from the `Downtime notifier` bot in this channel '''
