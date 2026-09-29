@@ -1,7 +1,7 @@
 from datetime    import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from io          import BytesIO
-from os          import getcwd, getenv, makedirs, path
+from os          import environ, getcwd, getenv, makedirs, path
 from shutil      import copyfile
 from threading   import Thread
 from traceback   import format_exc
@@ -20,6 +20,9 @@ DROPBOX_DOWNLOAD_URL    = "https://content.dropboxapi.com/2/files/download"
 DROPBOX_LIST_FOLDER_URL = "https://api.dropboxapi.com/2/files/list_folder"
 # duplicated from src/functions/backups.py - src isn't importable yet here
 DROPBOX_BACKUP_FOLDER = "/Projects/DiscordBOT/backups"
+DB_PREFIX             = "db_"
+ASSETS_PREFIX         = "assets_"
+DEGRADED_BOOT_ENV     = "DEGRADED_BOOT"
 
 
 def _early_log(message):
@@ -40,15 +43,22 @@ def _dropbox_access_token():
     return response.json()["access_token"]
 
 
-def _dropbox_latest_backup_path(access_token):
+def _dropbox_latest_backups(access_token):
+    ''' (newest assets zip entry, newest DB zip entry) - either can be None '''
     import requests
     response = requests.post(DROPBOX_LIST_FOLDER_URL, headers={"Authorization": f"Bearer {access_token}"},
                               json={"path": DROPBOX_BACKUP_FOLDER})
+    # a missing folder is an empty one - nothing backed up yet, not a failed fetch, see memory
+    if response.status_code == 409 and response.json().get("error_summary", "").startswith("path/not_found"):
+        return None, None
     response.raise_for_status()
     entries = response.json()["entries"]
-    if not entries:
-        return None
-    return max(entries, key=lambda entry: entry["server_modified"])["path_lower"]
+
+    def latest(prefix):
+        matching = [entry for entry in entries if entry["name"].startswith(prefix)]
+        return max(matching, key=lambda entry: entry["server_modified"]) if matching else None
+
+    return latest(ASSETS_PREFIX), latest(DB_PREFIX)
 
 
 def _dropbox_download(dropbox_path, access_token):
@@ -60,22 +70,34 @@ def _dropbox_download(dropbox_path, access_token):
     return response.content
 
 
-def _fetch_zip_bytes():
-    ''' prefers the latest Dropbox backup over the ASSET_ZIP_URL seed - see memory '''
+def _fetch_zips():
+    ''' zips to extract, in order: the newest full assets backup (else the ASSET_ZIP_URL seed),
+    then the newest DB backup on top of it - DB and assets are backed up separately, see memory '''
+    assets_raw = db_raw = None
+
     if getenv("DROPBOX_REFRESH_TOKEN"):
         try:
             access_token = _dropbox_access_token()
-            latest_path = _dropbox_latest_backup_path(access_token)
-            if latest_path:
-                return _dropbox_download(latest_path, access_token)
+            assets, db = _dropbox_latest_backups(access_token)
+            if assets:
+                assets_raw = _dropbox_download(assets["path_lower"], access_token)
+            # a DB zip older than the assets zip means its upload failed right after the assets
+            # one - the assets zip carries the newer DB then
+            if db and (assets is None or db["server_modified"] >= assets["server_modified"]):
+                db_raw = _dropbox_download(db["path_lower"], access_token)
         except Exception as error:
-            _early_log(f"fetch_assets: backup fetch failed ({error}), falling back to ASSET_ZIP_URL")
+            assets_raw = db_raw = None
+            # the seed is older than the backups - keep this process from backing it up over
+            # them, backups.py skips the rotation while this is set, see memory
+            environ[DEGRADED_BOOT_ENV] = "1"
+            _early_log(f"fetch_assets: backup fetch failed ({error}), falling back to ASSET_ZIP_URL, backups off until restart")
 
     url = getenv("ASSET_ZIP_URL")
-    if not url:
-        return None
-    with urlopen(url) as response:
-        return response.read()
+    if assets_raw is None and url:
+        with urlopen(url) as response:
+            assets_raw = response.read()
+
+    return [raw for raw in (assets_raw, db_raw) if raw is not None]
 
 
 def _ensure_server_config():
@@ -97,31 +119,33 @@ def fetch_assets():
         _ensure_server_config()
         return
 
-    raw = _fetch_zip_bytes()
-    if raw is None:
+    zips = _fetch_zips()
+    if not zips:
         _early_log("fetch_assets: no asset source configured, skipping")
         _ensure_server_config()
         return
 
-    # a dead/replaced share link serves an HTML error page, not a 404 - fail loudly, unlike
-    # the unset case above: a configured-but-broken source means something is actually wrong - see memory
-    if not raw.startswith(b"PK"):
-        raise RuntimeError(f"fetch_assets: source did not return a zip file (got {raw[:80]!r})")
+    entry_count = 0
+    for raw in zips:
+        # a dead/replaced share link serves an HTML error page, not a 404 - fail loudly, unlike
+        # the unset case above: a configured-but-broken source means something is actually wrong - see memory
+        if not raw.startswith(b"PK"):
+            raise RuntimeError(f"fetch_assets: source did not return a zip file (got {raw[:80]!r})")
 
-    with ZipFile(BytesIO(raw)) as archive:
-        # manual extraction works around a backslash-path zip bug - see memory
-        entry_count = len(archive.infolist())
-        for member in archive.infolist():
-            normalized = member.filename.replace("\\", "/")
-            target = path.join(getcwd(), *normalized.split("/"))
+        with ZipFile(BytesIO(raw)) as archive:
+            # manual extraction works around a backslash-path zip bug - see memory
+            entry_count += len(archive.infolist())
+            for member in archive.infolist():
+                normalized = member.filename.replace("\\", "/")
+                target = path.join(getcwd(), *normalized.split("/"))
 
-            if normalized.endswith("/"):
-                makedirs(target, exist_ok=True)
-                continue
+                if normalized.endswith("/"):
+                    makedirs(target, exist_ok=True)
+                    continue
 
-            makedirs(path.dirname(target), exist_ok=True)
-            with archive.open(member) as source, open(target, "wb") as dest:
-                dest.write(source.read())
+                makedirs(path.dirname(target), exist_ok=True)
+                with archive.open(member) as source, open(target, "wb") as dest:
+                    dest.write(source.read())
 
     _early_log(f"fetch_assets: extracted {entry_count} entries")
 
