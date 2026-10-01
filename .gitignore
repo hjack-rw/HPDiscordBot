@@ -12,6 +12,7 @@ src/__pycache__
 data/__database__.db
 data/__database__.db-dump
 data/__database__.db-journal
+data/__database__.ogdb
 
 # Logs
 data/bot.log

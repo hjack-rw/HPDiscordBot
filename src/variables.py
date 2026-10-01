@@ -39,7 +39,8 @@ except ImportError:
     print("failed to import 'test_bot' from pre_init!")
     # no console access on most hosts to run pre_init.py's TUI - see memory
     test_bot_overrides = server_config.get("test_bot", {})
-    test_bot = {"local_deploy": not os.path.exists("/.dockerenv"),
+    # set by the Dockerfile - /.dockerenv only exists under Docker itself, not on Render, see memory
+    test_bot = {"local_deploy": os.getenv("CONTAINER_DEPLOY", "False") != "True",
                 "test_body":    test_bot_overrides.get("test_body",    False),
                 "test_command": test_bot_overrides.get("test_command", False),
                 "test_events":  test_bot_overrides.get("test_events",  False),
