@@ -21,6 +21,17 @@ def test_replace_multiple_self_idx_uses_positional_placeholders():
     assert replace_multiple("go to 001 then 002", ["Kitchen", "Library"]) == "go to Kitchen then Library"
 
 
+def test_replace_multiple_self_idx_leaves_input_untouched():
+    """Used to rewrite the list in place, so the second call on the same CARD_VARIANTS table
+    wrapped the pairs again and crashed with 'replace() argument 2 must be str, not tuple'."""
+    replacements = ["Kitchen", "Library"]
+
+    replace_multiple("001 002", replacements)
+
+    assert replacements == ["Kitchen", "Library"]
+    assert replace_multiple("001 002", replacements) == "Kitchen Library"
+
+
 # --- text_utils.convert_to_unix_time ---
 
 def test_convert_to_unix_time_formats_discord_timestamp():

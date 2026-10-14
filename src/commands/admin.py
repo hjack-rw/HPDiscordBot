@@ -3,7 +3,7 @@ import src.variables as vars
 from src.body       import bot
 from src.db         import *
 from src.functions  import CustomHousecup, create_leaderboard, draw_infocard, get_avatar, log, print_portkey, send_webhook, standard_response, list_backup_sources, fetch_source_zip_bytes, split_backup_zip, upload_backup_rotation
-from src.tasks      import print_notification
+from src.tasks      import print_notification, describe_reminder, list_reminders, skip_reminder, postpone_reminder
 from src.views      import *
 
 from asyncio    import to_thread
@@ -44,6 +44,7 @@ class AdminCommands(Group):
     db_testing = Group(name="db_testing", description="Local, same-session DB backup/restore for testing")
     db         = Group(name="db",         description="Durable DB/asset redeploy and export")
     event      = Group(name="event",      description="Club events, maintenance, house cup disciplines")
+    queue      = Group(name="queue",      description="Queued reminders: list, skip, postpone")
     webhook    = Group(name="webhook",    description="Webhook-impersonation and manual notifications")
     portkey    = Group(name="portkey",    description="Portkey acceptance and posting")
     leaderboard = Group(name="leaderboard", description="Leaderboard and XP management")
@@ -220,6 +221,44 @@ class AdminCommands(Group):
         await (await ExtraVariable.initialize(name="housecup_disciplines")).change(to=tuple(all_picked))
 
         await interaction.followup.send("The House Cup disciplines have been **added**!", ephemeral=True)
+
+    ############################################################################################################
+
+    # Reminder queue functionality - sending one now is webhook send_notification
+    @queue.command(name="list")
+    @standard_response(silent=True)
+    async def list_queue(self, interaction:Interaction):
+        ''' List the queued reminders '''
+
+        lines = []
+        for entry in await list_reminders():
+            status = "missed" if entry["missed"] else f"sends <t:{max(entry['send_at'], entry['next_try'])}:R>"
+            if entry["last_error"] and not entry["missed"]:
+                status += f", last try failed: {entry['last_error']}"
+
+            lines.append(f"**#{entry['id']}** {describe_reminder(entry)} - {status}")
+
+        await interaction.response.send_message("\n".join(lines) or "The queue is **empty**!", ephemeral=True)
+
+
+    @queue.command(name="skip")
+    @standard_response()
+    async def skip_queued(self, interaction:Interaction, entry:int):
+        ''' Skip a queued reminder (an already created event stays) '''
+
+        skipped = await skip_reminder(entry)
+
+        await interaction.followup.send(f"**{describe_reminder(skipped)}** was **skipped**!", ephemeral=True)
+
+
+    @queue.command(name="postpone")
+    @standard_response()
+    async def postpone_queued(self, interaction:Interaction, entry:int, hours:int):
+        ''' Move a queued reminder's event by some hours '''
+
+        postponed = await postpone_reminder(bot.server, entry, hours)
+
+        await interaction.followup.send(f"Moved to **{describe_reminder(postponed)}**!", ephemeral=True)
 
     ############################################################################################################
 

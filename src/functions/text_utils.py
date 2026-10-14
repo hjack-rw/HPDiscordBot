@@ -5,9 +5,9 @@ from datetime  import datetime
 
 
 def replace_multiple(string:str, replace_list:list, self_idx=True):
+    # new list, never in place - callers pass module-level tables that get reused every call
     if self_idx:
-        for idx, instance in enumerate(replace_list):
-            replace_list[idx] = (f"{idx+1}".rjust(3, "0"), instance)
+        replace_list = [(f"{idx+1}".rjust(3, "0"), instance) for idx, instance in enumerate(replace_list)]
 
     return reduce(lambda a, kv: a.replace(*kv), replace_list, string)
 

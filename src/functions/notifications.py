@@ -5,14 +5,14 @@ from .discord_utils import send_webhook
 from .text_utils   import replace_multiple, convert_to_unix_time, catch_error
 from .media        import get_animal_rank
 
-from datetime  import datetime, timedelta
-from functools import partial
-from glob      import glob
-from os        import path
-from re        import search
+from dataclasses import dataclass
+from datetime    import datetime, timedelta
+from functools   import partial
+from glob        import glob
+from os          import path
+from re          import search
+from typing      import Awaitable, Callable, Optional
 
-from discord.app_commands.errors import CommandInvokeError
-from discord.errors              import DiscordServerError
 from discord.embeds              import Embed
 from discord.enums               import EntityType, PrivacyLevel
 from discord.file                import File
@@ -23,39 +23,53 @@ if vars.test_bot["test_command"] or vars.test_bot["test_events"] or vars.test_bo
 else:
     channel_ids = vars.channel_ids
 
-delete_after = {"hours":0, "minutes":0, "seconds":0}
-if vars.test_bot["test_tasks"]:
-    delete_after["minutes"] = vars.wait_for * 2
-
 BELL_ICON_URL = "https://storage.googleapis.com/chronicle-assets/images/icons/bell-alert-white.png"
 
 
-async def set_event_and_notification(server, event_info, date, event_duration, start_time, only_hour=True, time_delta=0, role="@everyone"):
-    global delete_after
+@dataclass
+class Delivery:
+    ''' progress of a queued send - a retry reuses the stored window and resumes after an
+    already-created event instead of creating a second one, see memory '''
+    window:        tuple
+    event_id:      Optional[int] = None
+    save_event_id: Optional[Callable[[int], Awaitable[None]]] = None
 
-    trigger_day = date
-    if time_delta:
-        trigger_day += timedelta(days=time_delta)
+
+def event_window(event_name, date, same_day=False):
+    ''' (beginning, ending) of the scheduled event a notification announces, None for
+    notifications without one - one source for the handlers and the reminder queue '''
+
+    timing = EVENT_TIMINGS.get(event_name)
+    if timing is None:
+        return None
 
     # for testing
     if vars.test_bot["test_tasks"]:
-        beginning = datetime.now() + timedelta(minutes=vars.wait_for*2)
-        ending    = beginning + timedelta(minutes=vars.wait_for)
-        duration  = f"~{vars.wait_for} minutes"
-    else:
-        delete_after["hours"]   = event_duration[0] + (start_time[0] - trigger_day.hour)   + (time_delta * 24)
-        delete_after["minutes"] = event_duration[1] + (start_time[1] - trigger_day.minute)
-        delete_after["seconds"] = event_duration[2] + (start_time[2] - trigger_day.second)
+        beginning = datetime.now(tz=date.tzinfo) + timedelta(minutes=vars.wait_for*2)
+        return beginning, beginning + timedelta(minutes=vars.wait_for)
 
-        beginning = trigger_day.replace(hour  =(start_time[0] % 24),
-                                        minute=(start_time[1] % 60),
-                                        second=(start_time[2] % 60),)
+    hour, minute, second = timing["start"]
+    trigger_day = date + timedelta(days=(0 if same_day else timing["days_after"]))
+    beginning   = trigger_day.replace(hour=(hour % 24), minute=(minute % 60), second=(second % 60), microsecond=0)
 
-        ending = beginning + timedelta(hours=event_duration[0], minutes=event_duration[1], seconds=event_duration[2])
+    hours, minutes, seconds = timing["duration"]
+    return beginning, beginning + timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
-        duration = f"~{event_duration[0]} hour{'s' if event_duration[0] > 1 else ''}"
 
-    log(f"h: {delete_after['hours']}  m: {delete_after['minutes']}  s: {delete_after['seconds']}")
+def duration_text(beginning, ending):
+    minutes = int((ending - beginning).total_seconds() // 60)
+
+    if minutes < 60:
+        return f"~{minutes} minutes"
+    return f"~{minutes // 60} hour{'s' if minutes >= 120 else ''}"
+
+
+async def set_event_and_notification(server, event_info, event_name, date, same_day=False, only_hour=True, role="@everyone", delivery=None):
+    ''' the scheduled event and its announcement as one unit - Discord errors propagate, so a
+    queued send retries the whole unit, see memory '''
+
+    beginning, ending = delivery.window if delivery else event_window(event_name, date, same_day)
+    duration = duration_text(beginning, ending)
 
     # get alternative title and insert timer
     if not event_info["title"]:
@@ -80,27 +94,30 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
     # fixed, code-defined asset - see memory
     image_path = glob(path.join(vars.image_data_path, "events", f"{event_info['image']}.*"))
 
-    if not vars.test_bot["test_tasks"]:
+    # create event, unless a previous try of this delivery already did
+    if not vars.test_bot["test_tasks"] and not (delivery and delivery.event_id):
+        # a late send can't start the event in the past - the minute of margin covers the request itself
+        now   = datetime.now(tz=beginning.tzinfo)
+        start = beginning if beginning > now + timedelta(minutes=1) else now + timedelta(minutes=2)
 
-        # create event
-        try:
+        if not image_path:
+            log("Could not create event... Image not found!")
+        elif start >= ending:
+            log("Could not create event... It is already over!")
+        else:
             with open(image_path[0], "rb") as file:
                 image_bytes = file.read()
 
-            await server.create_scheduled_event(name=event_name,
-                                                start_time=beginning.astimezone() if beginning > date else (date + timedelta(minutes=2)).astimezone(),
-                                                end_time=ending.astimezone(),
-                                                description=event_info["description"],
-                                                location=event_info["location"],
-                                                privacy_level=PrivacyLevel.guild_only,
-                                                entity_type=EntityType.external,
-                                                image=image_bytes)
-        except DiscordServerError:
-            log("Could not create event... Discord API error!")
-        except CommandInvokeError:
-            log("Could not create event... Bad timestamp!")
-        except (ValueError, IndexError):
-            log("Could not create event... Image not found!")
+            event = await server.create_scheduled_event(name=event_name,
+                                                        start_time=start.astimezone(),
+                                                        end_time=ending.astimezone(),
+                                                        description=event_info["description"],
+                                                        location=event_info["location"],
+                                                        privacy_level=PrivacyLevel.guild_only,
+                                                        entity_type=EntityType.external,
+                                                        image=image_bytes)
+            if delivery:
+                await delivery.save_event_id(event.id)
 
 
     # create notification message
@@ -116,8 +133,9 @@ async def set_event_and_notification(server, event_info, date, event_duration, s
     channel = server.get_channel(channel_ids["announcements"])
     message = await send_webhook(target_channel=channel, user_name=event_info["account"], content=f"Mention: {role}", embed=embed)
 
+    # gone when the event ends - a late send stays up for less
     if not vars.test_bot["test_tasks"]:
-        await message.delete(delay=(delete_after["hours"]*3600)+(delete_after["minutes"]*60)+delete_after["seconds"])
+        await message.delete(delay=max((ending - datetime.now(tz=ending.tzinfo)).total_seconds(), 0))
 
 
 async def _send_direct_notification(channel, event_info, file, extra_files, view):
@@ -146,7 +164,7 @@ async def _send_direct_notification(channel, event_info, file, extra_files, view
     return await send_webhook(target_channel=channel, user_name=event_info["account"], content=event_info["mention"], embed=embed, file=file, extra_files=extra_files, view=view)
 
 
-async def _notify_welcome(server, date, variables, same_day):
+async def _notify_welcome(server, date, variables, same_day, delivery=None):
     new_user, file, view = variables
     channel = server.get_channel(channel_ids["welcome"])
 
@@ -159,7 +177,7 @@ async def _notify_welcome(server, date, variables, same_day):
     return await _send_direct_notification(channel, event_info, file, [], view)
 
 
-async def _notify_level_up(server, date, variables, same_day):
+async def _notify_level_up(server, date, variables, same_day, delivery=None):
     user, user_data, level_ups = variables
     channel = server.get_channel(channel_ids["great-hall"])
 
@@ -179,7 +197,7 @@ async def _notify_level_up(server, date, variables, same_day):
     return await _send_direct_notification(channel, event_info, None, [], None)
 
 
-async def _notify_birthday(server, date, variables, same_day):
+async def _notify_birthday(server, date, variables, same_day, delivery=None):
     birthday_users = [await server.fetch_member(user_id) for user_id in variables[0]]
     birthday_user  = birthday_users[0]
     channel = server.get_channel(channel_ids["great-hall"])
@@ -207,8 +225,14 @@ CARD_VARIANTS = {"Card - Matagot":          {"card_message_key": "card_matagot",
                   "Card - Cornish Pixies":  {"card_message_key": "card_cornish_pixies", "image": "card_cornish_pixies", "title": "<Cornish Pixies! (common)>",
                                               "replacements": ["Library", "Pixies", "first bookcase row left", "Use Glacius.", "3 copies"]},}
 
+# start (h, m, s) on the trigger day + days_after (0 when same_day), and duration (h, m, s)
+EVENT_TIMINGS = {**{name: {"start": (17,0,0), "duration": (4,0,0), "days_after": 0} for name in CARD_VARIANTS},
+                 "Housecup":    {"start": (19,0,0),  "duration": (2,0,0), "days_after": 1},
+                 "Club Events": {"start": (19,30,0), "duration": (1,0,0), "days_after": 0},
+                 "Maintenance": {"start": (24,0,0),  "duration": (3,0,0), "days_after": 1},}
 
-async def _notify_card(server, date, variables, same_day, *, card_message_key, image, title, replacements):
+
+async def _notify_card(server, date, variables, same_day, delivery=None, *, event_name, card_message_key, image, title, replacements):
     # placeholders substituted before the link is spliced in, not after - see memory
     location_text = replace_multiple('''Go to the **001** and click on the 002 003!\n\nPick the option: **"004"**!\nYou will get 005 of the card.''', replacements)
 
@@ -221,10 +245,10 @@ async def _notify_card(server, date, variables, same_day, *, card_message_key, i
                   "image":          image,
                   "title":          title,}
 
-    return await set_event_and_notification(server, event_info, date, event_duration=(4,0,0), start_time=(17,0,0), role=f"<@&{vars.role_ids['card_reminder']}>")
+    return await set_event_and_notification(server, event_info, event_name, date, role=f"<@&{vars.role_ids['card_reminder']}>", delivery=delivery)
 
 
-async def _notify_housecup(server, date, variables, same_day):
+async def _notify_housecup(server, date, variables, same_day, delivery=None):
     discipline = variables[0]
 
     event_info = {"image":       "housecup",
@@ -234,10 +258,10 @@ async def _notify_housecup(server, date, variables, same_day):
                   "footer":   '''"Did you put your name for the House Cup yet?!" he asked calmly.''',
                   "account":     "Prof. Dumbledore",}
 
-    return await set_event_and_notification(server, event_info, date, time_delta=(0 if same_day else 1), event_duration=(2,0,0), start_time=(19,0,0), only_hour=False, role="@everyone")
+    return await set_event_and_notification(server, event_info, "Housecup", date, same_day=same_day, only_hour=False, role="@everyone", delivery=delivery)
 
 
-async def _notify_club_events(server, date, variables, same_day):
+async def _notify_club_events(server, date, variables, same_day, delivery=None):
     event_info = {"image":       "club_events",
                   "title":      f"{vars.club_name_short.upper()} Club Events!",
                   "subtitle":   f"Reminder: {vars.weekdays[date.weekday()]}!",
@@ -245,10 +269,10 @@ async def _notify_club_events(server, date, variables, same_day):
                   "footer":   '''"Place your right hand on my waist and...\nOne, two, three... One, two, three..."''',
                   "account":     "Prof. McGonagall",}
 
-    return await set_event_and_notification(server, event_info, date, event_duration=(1,0,0), start_time=(19,30,0), role=f"<@&{vars.role_ids['club_events']}>")
+    return await set_event_and_notification(server, event_info, "Club Events", date, role=f"<@&{vars.role_ids['club_events']}>", delivery=delivery)
 
 
-async def _notify_club_points(server, date, variables, same_day):
+async def _notify_club_points(server, date, variables, same_day, delivery=None):
     channel = server.get_channel(channel_ids["announcements"])
     staff_a, staff_b = vars.role_ids["staff"]
 
@@ -261,7 +285,7 @@ async def _notify_club_points(server, date, variables, same_day):
     return await _send_direct_notification(channel, event_info, None, [], None)
 
 
-async def _notify_maintenance(server, date, variables, same_day):
+async def _notify_maintenance(server, date, variables, same_day, delivery=None):
     event_info = {"image":       "maintenance",
                   "title":       "",
                   "subtitle":    "Reminder: <Maintenance!>",
@@ -269,10 +293,10 @@ async def _notify_maintenance(server, date, variables, same_day):
                   "footer":   '''"Go on, scram! Or I will hanging you by your thumbs in the dungeons!"''',
                   "account":     "Mr. Filch",}
 
-    return await set_event_and_notification(server, event_info, date, time_delta=(0 if same_day else 1), event_duration=(3,0,0), start_time=(24,0,0))
+    return await set_event_and_notification(server, event_info, "Maintenance", date, same_day=same_day, delivery=delivery)
 
 
-async def _notify_rankings(server, date, variables, same_day):
+async def _notify_rankings(server, date, variables, same_day, delivery=None):
     channel = server.get_channel(channel_ids["staffroom"])
     staff_a, staff_b = vars.role_ids["staff"]
 
@@ -293,19 +317,19 @@ NOTIFICATION_HANDLERS = {"Welcome":     _notify_welcome,
                           "Club Points": _notify_club_points,
                           "Maintenance": _notify_maintenance,
                           "Rankings":    _notify_rankings,
-                          **{name: partial(_notify_card, **variant) for name, variant in CARD_VARIANTS.items()},}
+                          **{name: partial(_notify_card, event_name=name, **variant) for name, variant in CARD_VARIANTS.items()},}
 
 
-async def print_notification(server, event_name, date=None, variables=None, is_task=True, same_day=False):
+async def print_notification(server, event_name, date=None, variables=None, is_task=True, same_day=False, delivery=None):
     variables = variables if variables is not None else []
     events    = vars.notification_dict()
     task_name = events[event_name]
 
+    # trigger key, not the short-dict lookup that raised KeyError for every event but the first per trigger
     if vars.test_bot["test_tasks"] and is_task:
-        events_short = vars.notification_dict(is_short=True)
-        log(f'''"{events_short[event_name]}" task running... {datetime.now()}!''')
+        log(f'''"{task_name}" task running... {datetime.now()}!''')
     elif not is_task:
         if date and task_name:
             date = date.astimezone(tz=vars.time_trigger[task_name].tzinfo)
 
-    return await NOTIFICATION_HANDLERS[event_name](server, date, variables, same_day)
+    return await NOTIFICATION_HANDLERS[event_name](server, date, variables, same_day, delivery=delivery)

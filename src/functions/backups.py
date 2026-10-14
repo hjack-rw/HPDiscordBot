@@ -22,6 +22,7 @@ DROPBOX_BACKUP_FOLDER   = "/Projects/DiscordBOT/backups"
 DB_PREFIX               = "db_"
 ASSETS_PREFIX           = "assets_"
 MAX_BACKUPS             = 3
+REQUEST_TIMEOUT         = 60  # seconds - a hung Dropbox call must not hold the to_thread worker forever
 BASE_SOURCE             = "base"
 # set by main.py's fetch_assets when a Dropbox error made it boot from the seed
 DEGRADED_BOOT_ENV       = "DEGRADED_BOOT"
@@ -86,7 +87,7 @@ def _newest_assets_fingerprint(entries):
 
 
 def _get_access_token():
-    response = session.post(DROPBOX_TOKEN_URL, data={
+    response = session.post(DROPBOX_TOKEN_URL, timeout=REQUEST_TIMEOUT, data={
         "grant_type":    "refresh_token",
         "refresh_token": getenv("DROPBOX_REFRESH_TOKEN"),
         "client_id":     getenv("DROPBOX_APP_KEY"),
@@ -102,13 +103,13 @@ def _upload(dropbox_path, data, access_token):
         "Dropbox-API-Arg": json.dumps({"path": dropbox_path, "mode": "add", "mute": True}),
         "Content-Type":    "application/octet-stream",
     }
-    response = session.post(DROPBOX_UPLOAD_URL, headers=headers, data=data)
+    response = session.post(DROPBOX_UPLOAD_URL, headers=headers, data=data, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
 
 
 def _list_backups(access_token):
     headers = {"Authorization": f"Bearer {access_token}"}
-    response = session.post(DROPBOX_LIST_FOLDER_URL, headers=headers, json={"path": DROPBOX_BACKUP_FOLDER})
+    response = session.post(DROPBOX_LIST_FOLDER_URL, headers=headers, json={"path": DROPBOX_BACKUP_FOLDER}, timeout=REQUEST_TIMEOUT)
     # a missing folder is an empty one - the next upload recreates it, see memory
     if response.status_code == 409 and response.json().get("error_summary", "").startswith("path/not_found"):
         return []
@@ -118,13 +119,13 @@ def _list_backups(access_token):
 
 def _delete(dropbox_path, access_token):
     headers = {"Authorization": f"Bearer {access_token}"}
-    response = session.post(DROPBOX_DELETE_URL, headers=headers, json={"path": dropbox_path})
+    response = session.post(DROPBOX_DELETE_URL, headers=headers, json={"path": dropbox_path}, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
 
 
 def _download(dropbox_path, access_token):
     headers = {"Authorization": f"Bearer {access_token}", "Dropbox-API-Arg": json.dumps({"path": dropbox_path})}
-    response = session.post(DROPBOX_DOWNLOAD_URL, headers=headers)
+    response = session.post(DROPBOX_DOWNLOAD_URL, headers=headers, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     return response.content
 

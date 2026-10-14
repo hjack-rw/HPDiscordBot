@@ -106,13 +106,10 @@ class BOT(commands.Bot):
 
         # start tasks
         for reminder in [
-                         game_reset_reminder, 
-                         morning_reminder,
-                         weekly_cards_reminder,
-                         housecup_reminder,
+                         game_reset_reminder,
+                         reminder_queue_task, # all-in-one: birthday, weekly cards, housecup, maintenance
                          #club_events_reminder,
-                         game_midnight_reminder,
-                         #midnight_reminder
+                         #midnight_reminder,
                          backup_rotation_task,
                         ]:
             if not reminder.is_running():
